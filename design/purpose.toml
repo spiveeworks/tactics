@@ -2,5 +2,20 @@
 
 [REQ-purpose]
 text = '''
-The purpose of this project is...
+To create a top down tactical game that uses a finely grained planning system
+to make a near-perfect-information non-cooperative game.
+
+The model would be very similar to Frozen Synapse, agents with abilities in a
+2d environment, with polygon walls and other obstacles, attempting to achieve
+goals adversarially with unbounded planning time.
+
+The key distinction would be that instead of having a "simultaneous turn"
+model, which immediately puts the focus on guessing what the adversary will do
+in the next 5 seconds, this game/engine would have a continuous/compact
+resolution model.
+
+Further distinctions include different base content like obstacle types, weapon
+types, movement systems, etc.
+There could even be customization in place of FS's concretely designed content,
+simply to ensure that the player can make the game appropriately designed.
 '''
