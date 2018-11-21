@@ -19,3 +19,89 @@ types, movement systems, etc.
 There could even be customization in place of FS's concretely designed content,
 simply to ensure that the player can make the game appropriately designed.
 '''
+
+
+[REQ-server]
+partof = 'REQ-purpose'
+text = '''
+The game shall consist of a simulation, i.e. a finite set of entities changing
+their own state and the state of other entities within some rule set.
+
+Writing a plan for your units shall simply translate into a sequence of entity
+states, where each entity is one of your units.
+
+A server, internal or external, shall perform three tasks on these state
+sequences:
+1. Validate + communicate invalid sequences
+2. Communicate surprises
+3. Resolve + communicate conflicts
+
+Each entity shall have a specified owner (though that owner doesn't have to be
+the same for the whole game, at the very least casualties will essentially have
+no owner.)
+The server will then collect entity state sequences from the clients associated
+with each entity's owner, and perform the above tasks.
+Some entities may be owned by an external client on the same device as the
+server, which may be referred to as "the server's responsibility", but for the
+purposes of this design, the server is specifically a software abstraction for
+the responsibility of resolving entity state sequences.
+
+While clients will use "commands" as an abstraction for valid sequences of
+entity states, as well as for algorithms that automate things like pathfinding,
+this concept will be deliberately separate from anything the server
+understands, simply because the rules for validating entity states will be much
+simpler than the translation from commands into entity states, and hence the
+latter would provide little advantage for server development.
+
+In the future an analogous distinction server-side might save on network usage, 
+but this won't be considered for now.
+'''
+
+[REQ-client]
+partof = 'REQ-purpose'
+text = '''
+In order to help the player understand the game simulation, and generate their
+own plans, a client shall exist which renders known past information as well as
+planned future information, and aids in modifying that plan.
+
+As described in [[REQ-server]], the game simulation exists as a set of
+entities, each with their own state sequences.
+These state sequences are easy to make, but can easily be invalid.
+As a result the user should not have to directly manipulate these state
+sequences, but should manipulate some visual sequence of commands, which will
+usually generate valid state sequences.
+'''
+
+[REQ-unit]
+partof = 'REQ-purpose'
+text = '''
+One of the entities in the simulation described in [[REQ-server]], perhaps the
+only entity, will be the unit.
+
+The unit's states consist of a position, velocity, current weapon,
+weapon target position, and current weapon use.
+
+Given state1 and time1 and state2 at time2, the transformation to state2 is
+valid if all of the following conditions are met:
+state2.position = state1.position + (time2 - time1) * state1.velocity
+state2.velocity.magnitude() <= state2.weapon_use.max_speed()
+state2.weapon.is_valid_use(state2.weapon_use)
+state1.weapon_use.can_transition_to(state2.weapon_use, time2 - time1)
+
+all of the fields are numbers or vectors of some kind,
+velocity.magnitude() takes the obvious euclidean definition
+weapon_use.max_speed() is obviously also a number
+the other boolean methods is_valid_use and can_transition_to are obviously
+arbitrary and allow for a lot of possible weapon behaviours.
+
+Weapon uses are intended to affect other entities in the simulation as well,
+usually by either creating a projectile entity, or by directly killing another
+unit.
+Whether killing a unit is part of the respective entity state, or simply
+deletes the entity, is not specified by the REQ.
+If the effect that a unit has on another entity can't be inferred from a change
+in the unit's state, then this will need to be accomodated somehow, either by
+adding dummy state, or by declaring the changes to the other entities directly.
+(the latter would not fit in with the current model in [[REQ-server]], but that
+can be accomodated if necessary)
+'''
