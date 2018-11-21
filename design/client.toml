@@ -1,0 +1,46 @@
+
+[SPC-client]
+partof = "REQ-client"
+text = '''
+The client will be a 2d graphical interface written in Rust using the piston
+library.
+
+For the time being the server should be a single data structure nested inside
+of the client.
+
+Entities will not exist as a single data structure, but will be an abstract
+concept that binds multiple data structures together conceptually.
+
+Entity state should simply be the fields associated with a unit as described in
+[[REQ-unit]].
+The "dead" state should simply be weapon_use == ~0
+
+A data structure should be defined, called a "snapshot", which contains all of
+the entity states of all of the units at a particular time.
+
+Another data structure, a "timeline" should exist, which contains the entity
+state sequence of one or all entities.
+
+The client will then be three snapshots, and a pair of timelines.
+One snapshot, called init, will represent the inital state of the game.
+Another, called recent, will represent the state last confirmed by the server.
+The last will be called display, and will be at an arbitrary time allowing the
+client to keep track of any state of the simulation, available for display.
+The two timelines will be called confirmed, and planned.
+Confirmed will be written to as the server accepts plans and responds with
+outcomes.
+Planned will be an exact copy of Confirmed, but designed to be modified after
+the current time.
+
+The reason for having two separate timelines is it allows for the planned to be
+easily reproduced from the confirmed, it even allows the possibility of editing
+the history that is already set in stone!
+In particular it separates the responsibility of integrating events the
+server sends, from the responsibility of changing plans that conflict with
+these events.
+
+There shall be a merge function that takes an updated `confirmed` and uses it
+to delay or delete plans in `planned` for any interrupted units
+It shall delete plans if the unit dies.
+No game mechenics should result in delayed plans at this time.
+'''
