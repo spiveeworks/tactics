@@ -107,23 +107,32 @@ impl piston_app::App for Client {
         self: &mut Self,
         centre: window::Context,
         graphics: &mut window::G2d,
-        args: window::RenderArgs,
+        _args: window::RenderArgs,
     ) {
+        let color = [1.0, 1.0, 1.0, 1.0];
+        let scale = 10.0;
+        let trans = centre.transform;
+        for (_, unit) in &self.display.states {
+            let x = unit.pos[0] - 0.5;
+            let y = unit.pos[1] - 0.5;
+            let rect = [scale * x, scale * y, scale, scale];
+            window::ellipse(color, rect, trans, graphics);
+        }
     }
 
     fn on_update(
         self: &mut Self,
-        args: window::UpdateArgs,
+        _args: window::UpdateArgs,
     ) {
     }
     fn on_input(
         self: &mut Self,
-        args: window::ButtonArgs,
+        _args: window::ButtonArgs,
     ) {
     }
     fn on_mouse_move(
         self: &mut Self,
-        mouse: [f64; 2],
+        _mouse: [f64; 2],
     ) {
     }
 
@@ -143,7 +152,7 @@ fn main() {
     };
     init.states.insert(0, UnitState {
         id: 0,
-        pos: [0.0, 0.0],
+        pos: [30.0, 30.0],
         vel: [0.0, 0.0],
         time: 0.0,
 
