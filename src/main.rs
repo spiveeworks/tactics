@@ -83,7 +83,7 @@ impl Ord for Time {
     }
 }
 
-type Timeline = BTreeMap<Time, UnitState>;
+type Timeline = BTreeMap<Time, Snapshot>;
 
 #[derive(Clone)]
 struct Snapshot {
@@ -95,7 +95,8 @@ type Plan = HashMap<EID, Vec<Command>>;
 
 struct Client {
     init: Snapshot,
-    recent: Snapshot,
+    current: Snapshot,
+    current_commands: HashMap<EID, Option<(f64, Command)>>,
     display: Snapshot,
     confirmed: Timeline,
     planned: Timeline,
@@ -103,18 +104,22 @@ struct Client {
     planpaths: Plan,
 }
 
+fn empty_map<T, U: Default>(base: &HashMap<EID, T>) -> HashMap<EID, U> {
+    base.iter()
+        .map(|(&id, _)| (id, Default::default()))
+        .collect()
+}
+
 impl Client {
     fn new(init: Snapshot) -> Self {
-        let recent = init.clone();
+        let current = init.clone();
         let display = init.clone();
-        let plans = init
-            .states
-            .iter()
-            .map(|(&id, _)| (id, Vec::new()))
-            .collect();
+        let plans = empty_map(&init.states);
+        let current_commands = empty_map(&init.states);
         let mut client = Client {
             init,
-            recent,
+            current,
+            current_commands,
             display,
             confirmed: Timeline::new(),
             planned: Timeline::new(),
@@ -127,6 +132,78 @@ impl Client {
 
     fn gen_planpaths(self: &mut Self) {
         self.planpaths = self.plans.clone();
+    }
+
+    fn gen_planned(self: &mut Self) {
+        self.gen_planpaths();
+        let mut sim = self.current.clone();
+        let mut comm = self.current_commands.clone();
+        let mut plans: HashMap<EID, _> = self.planpaths
+            .iter()
+            .map(|(&id, plan)| (id, plan.iter().peekable()))
+            .collect();
+        let mut timeline = Timeline::new();
+
+        loop {
+            let mut next: Option<(f64, EID)> = None;
+            for (&id, plan) in &mut plans {
+                if let Some((time, _)) = comm[&id] {
+                    if next.is_none() || next.unwrap().0 > time {
+                        next = Some((time, id));
+                    }
+                } else if plan.peek().is_none() {
+                    next = Some((sim.time, id));
+                }
+            }
+            if next.is_none() {
+                break;
+            }
+            let (time, id) = next.unwrap();
+            let mut state = sim.states[&id];
+            let new_comm = plans.get_mut(&id).and_then(Iterator::next);
+            let mut new_comm_time = time;
+            state.update_pos(time);
+            match comm[&id] {
+                None => (),
+                Some((_, Command::Nav(_))) => {
+                    state.vel = [0.0, 0.0];
+                },
+                Some((_, Command::Shoot(_))) => {
+                    state.action = Action::Mobile;
+                    state.target_id = NULL_ID;
+                    state.target_loc = [0.0, 0.0];
+                },
+                Some((_, Command::Wait(_))) => (),
+            }
+            sim.time = time;
+            match new_comm {
+                None => (),
+                Some(Command::Nav(pos)) => {
+                    let disp = vecmath::vec2_sub(*pos, state.pos);
+                    let max_speed = 1.0;
+                    let min_duration = vecmath::vec2_len(disp) / max_speed;
+                    let duration = min_duration.ceil();
+                    new_comm_time += duration;
+                    state.vel = vecmath::vec2_scale(*pos, 1.0/duration);
+                },
+                Some(Command::Wait(duration)) => {
+                    new_comm_time += duration;
+                },
+                Some(Command::Shoot(target)) => {
+                    new_comm_time += 5.0;
+                    state.target_id = *target;
+                },
+            }
+            sim.states.insert(id, state);
+            let timeline_entry = timeline.entry(Time(time));
+            timeline_entry
+                .or_insert(Snapshot { time, states: HashMap::new() })
+                .states
+                .insert(id, state);
+            comm.insert(id, new_comm.map(|comm| (new_comm_time, *comm)));
+        }
+
+        self.planned = timeline;
     }
 }
 
@@ -152,7 +229,7 @@ impl piston_app::App for Client {
 
         let path_color = [1.0, 1.0, 1.0, 1.0];
         for (id, plan) in &self.planpaths {
-            let mut pos = self.recent.states[id].pos;
+            let mut pos = self.display.states[id].pos;
             for command in plan {
                 if let &Command::Nav(newpos) = command {
                     let line = [
@@ -169,7 +246,7 @@ impl piston_app::App for Client {
         }
         for (id, plan) in &self.plans {
             let rect = [-0.25, -0.25, 0.5, 0.5];
-            let pos = self.recent.states[id].pos;
+            let pos = self.display.states[id].pos;
             let first_trans = trans.trans(pos[0], pos[1]);
             window::ellipse(path_color, rect, first_trans, graphics);
 
@@ -193,11 +270,12 @@ impl piston_app::App for Client {
         }
         let t1 = Time(self.display.time);
         let t2 = Time(new_time);
-        for (_, unit) in self.planned.range(t1..t2) {
-            let id = unit.id;
-            let mut unit = *unit;
-            unit.update_pos(new_time);
-            self.display.states.insert(id, unit);
+        for (_, units) in self.planned.range(t1..t2) {
+            for (id, unit) in &units.states {
+                let mut unit = *unit;
+                unit.update_pos(new_time);
+                self.display.states.insert(*id, unit);
+            }
         }
         self.display.time = new_time;
     }
@@ -244,7 +322,9 @@ fn main() {
         let plan = client.plans.get_mut(&unit.id).unwrap();
         plan.push(Command::Nav([33.0, 30.0]));
         plan.push(Command::Nav([40.0, 23.0]));
+        plan.push(Command::Wait(2.0));
+        plan.push(Command::Nav([40.0, 20.0]));
     }
-    client.gen_planpaths();
+    client.gen_planned();
     piston_app::run_until_escape(client);
 }

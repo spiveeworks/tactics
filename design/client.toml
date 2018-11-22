@@ -41,22 +41,45 @@ Additionally the plan will have any successful commands removed from the front.
 
 "Start simulating" actually means start playing the `planned` timeline, which
 is calculated in advance.
+'''
 
+[SPC-client-gen_planned]
+text = '''
 Caulculating the timeline has two steps, the first is to find the path
 associated with each command sequence.
+
 It is unlikely that any commands will generate paths dynamically, since smart
 paths so often rely on foresight about what the opponent _will_ do, not what
 they have done already.
 As a result, path information can be generated without actually running a
 simulation.
+
 Timing of actual events on the other hand, must be generated in proper
 lock-step between all the units at once.
-This means creating a snapshot, and using it to calculate the order that units
-will fulfill their commands, as well as whether commands will succeed, and
-whether units will die. The snapshot will walk forward as all of the
-command/path sequences are iterated through, until eventually all commands have
-been expressed in the simulation, or all units with remaining commands have
-died.
+This means copying the current snapshot, as well as all currently run commands,
+and simulating the process of submitting each command (from the path
+information) to the server, one by one, until all commands have been submitted.
+
+Submitting a command has two parts:
+1. client converts command into a desired state transition
+2. server resolves conflicts with other state transitions
+step 2 only applies to weapon usage/item interaction, not to movement.
+
+When converting a command into state transitions, it is worth noting that the
+completion of one command, and the initiation of the next command, take place
+in a single state transition.
+
+The actual algorithm will therefore be to iterate on the following sequence of
+steops:
+- see which command will end or have a side effect soonest
+- roll the snapshot forward to this time
+- combine the current and next command into a state transition
+- write the state transition to the timeline
+- write the next command to the current commands, along with predicted end time
+
+Eventually all units will either die or run out of commands, at which point all
+current_commands will be None, and all command lists will be empty.
+At this point the simulation is done.
 '''
 
 [SPC-client-data]
