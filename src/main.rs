@@ -23,7 +23,7 @@ use prelude::*;
 
 #[derive(Clone, Copy)]
 enum Command {
-    Walk(Vec2),
+    Nav(Vec2),
     Wait(f64),
     Shoot(EID),
 }
@@ -91,27 +91,42 @@ struct Snapshot {
     states: HashMap<EID, UnitState>,
 }
 
+type Plan = HashMap<EID, Vec<Command>>;
+
 struct Client {
     init: Snapshot,
     recent: Snapshot,
     display: Snapshot,
     confirmed: Timeline,
     planned: Timeline,
-    plan: HashMap<EID, Vec<Command>>,
+    plans: Plan,
+    planpaths: Plan,
 }
 
 impl Client {
     fn new(init: Snapshot) -> Self {
         let recent = init.clone();
         let display = init.clone();
-        let confirmed = BTreeMap::new();
-        let planned = BTreeMap::new();
-        let plan = init
+        let plans = init
             .states
             .iter()
             .map(|(&id, _)| (id, Vec::new()))
             .collect();
-        Client { init, recent, display, confirmed, planned, plan }
+        let mut client = Client {
+            init,
+            recent,
+            display,
+            confirmed: Timeline::new(),
+            planned: Timeline::new(),
+            plans,
+            planpaths: Plan::new(),
+        };
+        client.gen_planpaths();
+        client
+    }
+
+    fn gen_planpaths(self: &mut Self) {
+        self.planpaths = self.plans.clone();
     }
 }
 
@@ -122,16 +137,48 @@ impl piston_app::App for Client {
         graphics: &mut window::G2d,
         _args: window::RenderArgs,
     ) {
+        use piston_window::Transformed;
         window::clear([0.0, 0.0, 0.0, 1.0], graphics);
 
         let unit_color = [1.0, 1.0, 1.0, 1.0];
         let scale = 10.0;
-        let trans = centre.transform;
+        let trans = centre.transform.scale(scale, scale);
         for (_, unit) in &self.display.states {
             let x = unit.pos[0] - 0.5;
             let y = unit.pos[1] - 0.5;
-            let rect = [scale * x, scale * y, scale, scale];
+            let rect = [x, y, 1.0, 1.0];
             window::ellipse(unit_color, rect, trans, graphics);
+        }
+
+        let path_color = [1.0, 1.0, 1.0, 1.0];
+        for (id, plan) in &self.planpaths {
+            let mut pos = self.recent.states[id].pos;
+            for command in plan {
+                if let &Command::Nav(newpos) = command {
+                    let line = [
+                        pos[0],
+                        pos[1],
+                        newpos[0],
+                        newpos[1]
+                    ];
+                    let r = 1.0/scale;
+                    window::line(path_color, r, line, trans, graphics);
+                    pos = newpos;
+                }
+            }
+        }
+        for (id, plan) in &self.plans {
+            let rect = [-0.25, -0.25, 0.5, 0.5];
+            let pos = self.recent.states[id].pos;
+            let first_trans = trans.trans(pos[0], pos[1]);
+            window::ellipse(path_color, rect, first_trans, graphics);
+
+            for command in plan {
+                if let &Command::Nav(pos) = command {
+                    let trans = trans.trans(pos[0], pos[1]);
+                    window::ellipse(path_color, rect, trans, graphics);
+                }
+            }
         }
     }
 
@@ -179,10 +226,10 @@ fn main() {
         time: 0.0,
         states: HashMap::new(),
     };
-    let mut unit = UnitState {
+    let unit = UnitState {
         id: 0,
         pos: [30.0, 30.0],
-        vel: [1.0, 0.0],
+        vel: [0.0, 0.0],
         time: 0.0,
 
         weapon: Weapon::Gun,
@@ -193,9 +240,11 @@ fn main() {
     init.states.insert(0, unit);
 
     let mut client = Client::new(init);
-    unit.time = 3.0;
-    unit.pos = [33.0, 30.0];
-    unit.vel = [1.0, -1.0];
-    client.planned.insert(Time(unit.time), unit);
+    {
+        let plan = client.plans.get_mut(&unit.id).unwrap();
+        plan.push(Command::Nav([33.0, 30.0]));
+        plan.push(Command::Nav([40.0, 23.0]));
+    }
+    client.gen_planpaths();
     piston_app::run_until_escape(client);
 }

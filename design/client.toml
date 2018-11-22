@@ -37,6 +37,26 @@ When submitted, the client shall render results between old 'recent' time up
 until new 'recent' time.
 This will also allow it to regenerate the new recent snapshot :o
 Additionally the plan will have any successful commands removed from the front.
+
+
+"Start simulating" actually means start playing the `planned` timeline, which
+is calculated in advance.
+
+Caulculating the timeline has two steps, the first is to find the path
+associated with each command sequence.
+It is unlikely that any commands will generate paths dynamically, since smart
+paths so often rely on foresight about what the opponent _will_ do, not what
+they have done already.
+As a result, path information can be generated without actually running a
+simulation.
+Timing of actual events on the other hand, must be generated in proper
+lock-step between all the units at once.
+This means creating a snapshot, and using it to calculate the order that units
+will fulfill their commands, as well as whether commands will succeed, and
+whether units will die. The snapshot will walk forward as all of the
+command/path sequences are iterated through, until eventually all commands have
+been expressed in the simulation, or all units with remaining commands have
+died.
 '''
 
 [SPC-client-data]
