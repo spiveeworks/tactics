@@ -5,15 +5,17 @@ extern crate vecmath;
 use piston_window as window;
 
 use std::cmp;
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 
 pub mod prelude {
-    pub type Vec2 = ::vecmath::Vector2<f64>;
     pub type EID = usize;
 
     pub const NULL_ID: EID = EID::max_value();
+
+    pub type Vec2 = ::vecmath::Vector2<f64>;
+    pub use vecmath::{vec2_scale, vec2_add};
 }
 
 use prelude::*;
@@ -50,27 +52,38 @@ struct UnitState {
     id: EID,
 }
 
-impl PartialEq for UnitState {
+impl UnitState {
+    fn update_pos(self: &mut Self, new_time: f64) {
+        let vel = vec2_scale(self.vel, new_time - self.time);
+        let pos = vec2_add(self.pos, vel);
+        self.pos = pos;
+        self.time = new_time;
+    }
+}
+
+struct Time(f64);
+
+impl PartialEq for Time {
     fn eq(self: &Self, other: &Self) -> bool {
-        self.time == other.time
+        self.0 == other.0
     }
 }
-impl Eq for UnitState {}
+impl Eq for Time {}
 
-impl PartialOrd for UnitState {
+impl PartialOrd for Time {
     fn partial_cmp(self: &Self, other: &Self) -> Option<cmp::Ordering> {
-        PartialOrd::partial_cmp(&self.time, &other.time)
+        PartialOrd::partial_cmp(&self.0, &other.0)
     }
 }
 
-impl Ord for UnitState {
+impl Ord for Time {
     fn cmp(self: &Self, other: &Self) -> cmp::Ordering {
-        cmp::PartialOrd::partial_cmp(&self.time, &other.time)
+        cmp::PartialOrd::partial_cmp(&self.0, &other.0)
             .expect("Got NaN as time...")
     }
 }
 
-type Timeline = BTreeSet<UnitState>;
+type Timeline = BTreeMap<Time, UnitState>;
 
 #[derive(Clone)]
 struct Snapshot {
@@ -91,8 +104,8 @@ impl Client {
     fn new(init: Snapshot) -> Self {
         let recent = init.clone();
         let display = init.clone();
-        let confirmed = BTreeSet::new();
-        let planned = BTreeSet::new();
+        let confirmed = BTreeMap::new();
+        let planned = BTreeMap::new();
         let plan = init
             .states
             .iter()
@@ -109,14 +122,16 @@ impl piston_app::App for Client {
         graphics: &mut window::G2d,
         _args: window::RenderArgs,
     ) {
-        let color = [1.0, 1.0, 1.0, 1.0];
+        window::clear([0.0, 0.0, 0.0, 1.0], graphics);
+
+        let unit_color = [1.0, 1.0, 1.0, 1.0];
         let scale = 10.0;
         let trans = centre.transform;
         for (_, unit) in &self.display.states {
             let x = unit.pos[0] - 0.5;
             let y = unit.pos[1] - 0.5;
             let rect = [scale * x, scale * y, scale, scale];
-            window::ellipse(color, rect, trans, graphics);
+            window::ellipse(unit_color, rect, trans, graphics);
         }
     }
 
@@ -124,6 +139,20 @@ impl piston_app::App for Client {
         self: &mut Self,
         _args: window::UpdateArgs,
     ) {
+        let dtime = 0.1;
+        let new_time = self.display.time + dtime;
+        for (_, unit) in &mut self.display.states {
+            unit.update_pos(new_time);
+        }
+        let t1 = Time(self.display.time);
+        let t2 = Time(new_time);
+        for (_, unit) in self.planned.range(t1..t2) {
+            let id = unit.id;
+            let mut unit = *unit;
+            unit.update_pos(new_time);
+            self.display.states.insert(id, unit);
+        }
+        self.display.time = new_time;
     }
     fn on_input(
         self: &mut Self,
@@ -150,17 +179,23 @@ fn main() {
         time: 0.0,
         states: HashMap::new(),
     };
-    init.states.insert(0, UnitState {
+    let mut unit = UnitState {
         id: 0,
         pos: [30.0, 30.0],
-        vel: [0.0, 0.0],
+        vel: [1.0, 0.0],
         time: 0.0,
 
         weapon: Weapon::Gun,
         action: Action::Mobile,
         target_id: NULL_ID,
         target_loc: [0.0, 0.0],
-    });
-    let client = Client::new(init);
+    };
+    init.states.insert(0, unit);
+
+    let mut client = Client::new(init);
+    unit.time = 3.0;
+    unit.pos = [33.0, 30.0];
+    unit.vel = [1.0, -1.0];
+    client.planned.insert(Time(unit.time), unit);
     piston_app::run_until_escape(client);
 }
