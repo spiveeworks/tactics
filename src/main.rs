@@ -151,7 +151,7 @@ impl Client {
                     if next.is_none() || next.unwrap().0 > time {
                         next = Some((time, id));
                     }
-                } else if plan.peek().is_none() {
+                } else if plan.peek().is_some() {
                     next = Some((sim.time, id));
                 }
             }
@@ -184,7 +184,7 @@ impl Client {
                     let min_duration = vecmath::vec2_len(disp) / max_speed;
                     let duration = min_duration.ceil();
                     new_comm_time += duration;
-                    state.vel = vecmath::vec2_scale(*pos, 1.0/duration);
+                    state.vel = vecmath::vec2_scale(disp, 1.0/duration);
                 },
                 Some(Command::Wait(duration)) => {
                     new_comm_time += duration;
@@ -229,7 +229,7 @@ impl piston_app::App for Client {
 
         let path_color = [1.0, 1.0, 1.0, 1.0];
         for (id, plan) in &self.planpaths {
-            let mut pos = self.display.states[id].pos;
+            let mut pos = self.current.states[id].pos;
             for command in plan {
                 if let &Command::Nav(newpos) = command {
                     let line = [
@@ -246,7 +246,7 @@ impl piston_app::App for Client {
         }
         for (id, plan) in &self.plans {
             let rect = [-0.25, -0.25, 0.5, 0.5];
-            let pos = self.display.states[id].pos;
+            let pos = self.current.states[id].pos;
             let first_trans = trans.trans(pos[0], pos[1]);
             window::ellipse(path_color, rect, first_trans, graphics);
 
@@ -320,9 +320,10 @@ fn main() {
     let mut client = Client::new(init);
     {
         let plan = client.plans.get_mut(&unit.id).unwrap();
+        plan.push(Command::Wait(2.0));
         plan.push(Command::Nav([33.0, 30.0]));
         plan.push(Command::Nav([40.0, 23.0]));
-        plan.push(Command::Wait(2.0));
+        plan.push(Command::Wait(5.0));
         plan.push(Command::Nav([40.0, 20.0]));
     }
     client.gen_planned();
