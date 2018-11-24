@@ -69,9 +69,24 @@ When converting a command into state transitions, it is worth noting that the
 completion of one command, and the initiation of the next command, take place
 in a single state transition.
 
+All external effects should be inferable from autonomous state changes.
+When a command has an effect on another entity, it creates an additional state
+transition.
+This transition shall be applied over the top of any autonomous state
+transitions that happen at the same time.
+When the server applies these changes it shall check to see if the client has
+already anticipated the change, and only if it hasn't will the server apply the
+change and then notify the client of the change.
+Finally some actions must terminate themselves, and if the weapon_action field
+of a unit is not explicitly changed or reset at the expected time, then the
+server will treat the reset as an external consequence of the action.
+
 The actual algorithm will therefore be to iterate on the following sequence of
 steops:
 - see which command will end or have a side effect soonest
+ - if multiple commands end at the same time, side effects must be applied
+   afterward.
+ - if multiple commands have effects, all effects are applied trade-style
 - roll the snapshot forward to this time
 - combine the current and next command into a state transition
 - write the state transition to the timeline
