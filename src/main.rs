@@ -97,6 +97,32 @@ struct Snapshot {
     states: HashMap<EID, UnitState>,
 }
 
+fn update_snapshot_precise(
+    current: &mut Snapshot,
+    timeline: &Timeline,
+    new_time: f64,
+) {
+    let t1 = Time(current.time);
+    let t2 = Time(new_time);
+    for (_, units) in timeline.range(t1..t2) {
+        for (&id, &unit) in &units.states {
+            current.states.insert(id, unit);
+        }
+    }
+    current.time = new_time;
+}
+
+fn update_snapshot(
+    current: &mut Snapshot,
+    timeline: &Timeline,
+    new_time: f64,
+) {
+    update_snapshot_precise(current, timeline, new_time);
+    for (_, unit) in &mut current.states {
+        unit.update_pos(new_time);
+    }
+}
+
 type Plan = HashMap<EID, Vec<Command>>;
 
 struct Client {
@@ -301,6 +327,9 @@ impl Client {
             }
         }
         self.gen_planned();
+        let time = self.display.time;
+        self.display = self.current.clone();
+        update_snapshot(&mut self.display, &self.planned, time);
     }
 }
 
@@ -367,19 +396,7 @@ impl piston_app::App for Client {
         }
         let dtime = 0.1;
         let new_time = self.display.time + dtime;
-        for (_, unit) in &mut self.display.states {
-            unit.update_pos(new_time);
-        }
-        let t1 = Time(self.display.time);
-        let t2 = Time(new_time);
-        for (_, units) in self.planned.range(t1..t2) {
-            for (id, unit) in &units.states {
-                let mut unit = *unit;
-                unit.update_pos(new_time);
-                self.display.states.insert(*id, unit);
-            }
-        }
-        self.display.time = new_time;
+        update_snapshot(&mut self.display, &self.planned, new_time);
     }
     fn on_input(
         self: &mut Self,
