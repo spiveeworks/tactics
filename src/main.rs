@@ -37,6 +37,12 @@ enum Weapon {
 enum Action {
     Mobile,
     Shoot,
+    Dead,
+}
+
+#[derive(Clone, Copy)]
+enum Effect {
+    Die,
 }
 
 #[derive(Clone, Copy)]
@@ -138,6 +144,7 @@ impl Client {
         self.gen_planpaths();
         let mut sim = self.current.clone();
         let mut comm = self.current_commands.clone();
+        let mut side_effects = Vec::new();
         let mut plans: HashMap<EID, _> = self.planpaths
             .iter()
             .map(|(&id, plan)| (id, plan.iter().peekable()))
@@ -155,6 +162,28 @@ impl Client {
                     next = Some((sim.time, id));
                 }
             }
+            if next.is_none() || next.unwrap().0 > sim.time {
+                for (id, effect) in side_effects {
+                    use self::Effect::*;
+                    let state = sim.states.get_mut(&id).unwrap();
+                    match effect {
+                        Die => {
+                            state.update_pos(sim.time);
+                            state.action = Action::Dead;
+                            state.vel = [0.0, 0.0];
+                            state.target_id = NULL_ID;
+                            state.target_loc = [0.0, 0.0];
+                        },
+                    }
+                    let time = state.time;
+                    timeline
+                        .entry(Time(state.time))
+                        .or_insert(Snapshot { time, states: HashMap::new() })
+                        .states
+                        .insert(id, *state);
+                }
+                side_effects = Vec::new();
+            }
             if next.is_none() {
                 break;
             }
@@ -162,6 +191,7 @@ impl Client {
             let mut state = sim.states[&id];
             let new_comm = plans.get_mut(&id).and_then(Iterator::next);
             let mut new_comm_time = time;
+            sim.time = time;
             state.update_pos(time);
             match comm[&id] {
                 None => (),
@@ -169,13 +199,13 @@ impl Client {
                     state.vel = [0.0, 0.0];
                 },
                 Some((_, Command::Shoot(_))) => {
+                    side_effects.push((state.target_id, Effect::Die));
                     state.action = Action::Mobile;
                     state.target_id = NULL_ID;
                     state.target_loc = [0.0, 0.0];
                 },
                 Some((_, Command::Wait(_))) => (),
             }
-            sim.time = time;
             match new_comm {
                 None => (),
                 Some(Command::Nav(pos)) => {
@@ -192,6 +222,7 @@ impl Client {
                 Some(Command::Shoot(target)) => {
                     new_comm_time += 5.0;
                     state.target_id = *target;
+                    state.action = Action::Shoot;
                 },
             }
             sim.states.insert(id, state);
@@ -304,9 +335,9 @@ fn main() {
         time: 0.0,
         states: HashMap::new(),
     };
-    let unit = UnitState {
+    let killr = UnitState {
         id: 0,
-        pos: [30.0, 30.0],
+        pos: [20.0, 30.0],
         vel: [0.0, 0.0],
         time: 0.0,
 
@@ -315,16 +346,33 @@ fn main() {
         target_id: NULL_ID,
         target_loc: [0.0, 0.0],
     };
-    init.states.insert(0, unit);
+    let killd = UnitState {
+        id: 1,
+        pos: [40.0, 40.0],
+        vel: [0.0, 0.0],
+        time: 0.0,
+
+        weapon: Weapon::Gun,
+        action: Action::Mobile,
+        target_id: NULL_ID,
+        target_loc: [0.0, 0.0],
+    };
+    init.states.insert(0, killr);
+    init.states.insert(1, killd);
 
     let mut client = Client::new(init);
     {
-        let plan = client.plans.get_mut(&unit.id).unwrap();
-        plan.push(Command::Wait(2.0));
-        plan.push(Command::Nav([33.0, 30.0]));
-        plan.push(Command::Nav([40.0, 23.0]));
-        plan.push(Command::Wait(5.0));
-        plan.push(Command::Nav([40.0, 20.0]));
+        let plan = [
+            (0, Command::Shoot(1)),
+            (1, Command::Nav([40.0, 20.0])),
+        ];
+        for &(id, com) in &plan {
+            client
+                .plans
+                .get_mut(&id)
+                .unwrap()
+                .push(com);
+        }
     }
     client.gen_planned();
     piston_app::run_until_escape(client);
