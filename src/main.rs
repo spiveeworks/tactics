@@ -67,6 +67,7 @@ impl UnitState {
     }
 }
 
+#[derive(Clone, Copy)]
 struct Time(f64);
 
 impl PartialEq for Time {
@@ -125,6 +126,12 @@ fn update_snapshot(
 
 type Plan = HashMap<EID, Vec<Command>>;
 
+struct Server {
+    init: Snapshot,
+    confirmed: Timeline,
+    current: Snapshot,
+}
+
 struct ClientPlan {
     init: Snapshot,
     confirmed: Timeline,
@@ -136,6 +143,7 @@ struct ClientPlan {
 struct Client {
     client_a: ClientPlan,
     client_b: ClientPlan,
+    server: Server,
     display: Snapshot,
     planpaths: Plan,
     planned: Timeline,
@@ -152,6 +160,101 @@ fn empty_map<T, U: Default>(base: &HashMap<EID, T>) -> HashMap<EID, U> {
         .collect()
 }
 
+impl Server {
+    fn consequence(self: &Self) -> Option<(f64, Vec<(EID, Effect)>)> {
+        let mut result: Option<(f64, Vec<(EID, Effect)>)> = None;
+        for (_, &unit) in &self.current.states {
+            let mut new_result = None;
+            if let Action::Shoot = unit.action {
+                new_result =
+                    Some((unit.time + 5.0, unit.target_id, Effect::Die))
+            }
+            if let Some((time, id, eff)) = new_result {
+                if result.is_none() || time < result.as_ref().unwrap().0 {
+                    result = Some((time, vec![(id, eff)]));
+                } else if time == result.as_ref().unwrap().0 {
+                    result.as_mut().unwrap().1.push((id, eff));
+                }
+            }
+        }
+        result
+    }
+
+    fn resolve(self: &mut Self, upd: HashMap<EID, UnitState>)
+        -> Result<Snapshot, EID>
+    {
+        let min_internal = upd.iter().map(|(_id, unit)| Time(unit.time)).min();
+        let ext = self.consequence();
+        let min_external = ext.as_ref().map(|&(time, _)| Time(time));
+        let min = cmp::min(min_internal, min_external);
+
+        if min.is_none() {
+            return Err(NULL_ID);
+        }
+        let mut events = Snapshot {
+            time: min.unwrap().0,
+            states: HashMap::new(),
+        };
+
+        for (id, unit) in upd {
+            if unit.time == events.time {
+                if self.is_valid(id, unit) {
+                    events.states.insert(id, unit);
+                } else {
+                    return Err(id);
+                }
+            }
+        }
+
+        if let Some((time, ext)) = ext {
+            if time == events.time {
+                let eff_upd = Self::apply_effects(
+                    &self.current,
+                    time,
+                    ext,
+                );
+                for (id, unit) in eff_upd {
+                    events.states.insert(id, unit);
+                }
+            }
+        }
+
+        self.confirmed.insert(Time(events.time), events.clone());
+        self.current.time = events.time;
+        for (&id, &unit) in &events.states {
+            self.current.states.insert(id, unit);
+        }
+
+        Ok(events)
+    }
+
+    fn is_valid(self: &Self, id: EID, unit: UnitState) -> bool {
+        true
+    }
+
+    fn apply_effects(
+        snap: &Snapshot,
+        time: f64,
+        eff: Vec<(EID, Effect)>,
+    ) -> HashMap<EID, UnitState> {
+        let mut result = HashMap::new();
+        for (id, effect) in eff {
+            use self::Effect::*;
+            let mut state = snap.states[&id];
+            match effect {
+                Die => {
+                    state.update_pos(time);
+                    state.action = Action::Dead;
+                    state.vel = [0.0, 0.0];
+                    state.target_id = NULL_ID;
+                    state.target_loc = [0.0, 0.0];
+                },
+            }
+            result.insert(id, state);
+        }
+        result
+    }
+}
 
 struct Controls {
     select: window::Button,
@@ -162,6 +265,7 @@ struct Controls {
     playpause: window::Button,
     restart: window::Button,
     switch_team: window::Button,
+    submit: window::Button,
 }
 
 static CONTROLS: Controls = Controls {
@@ -173,6 +277,7 @@ static CONTROLS: Controls = Controls {
     playpause:   window::Button::Keyboard(window::keyboard::Key::Space),
     restart:     window::Button::Keyboard(window::keyboard::Key::R),
     switch_team: window::Button::Keyboard(window::keyboard::Key::LAlt),
+    submit:      window::Button::Keyboard(window::keyboard::Key::Return),
 };
 
 impl ClientPlan {
@@ -211,24 +316,15 @@ impl ClientPlan {
                 }
             }
             if next.is_none() || next.unwrap().0 > sim.time {
-                for (id, effect) in side_effects {
-                    use self::Effect::*;
-                    let state = sim.states.get_mut(&id).unwrap();
-                    match effect {
-                        Die => {
-                            state.update_pos(sim.time);
-                            state.action = Action::Dead;
-                            state.vel = [0.0, 0.0];
-                            state.target_id = NULL_ID;
-                            state.target_loc = [0.0, 0.0];
-                        },
-                    }
-                    let time = state.time;
-                    timeline
-                        .entry(Time(state.time))
-                        .or_insert(Snapshot { time, states: HashMap::new() })
-                        .states
-                        .insert(id, *state);
+                let time = sim.time;
+                let eff = Server::apply_effects(&sim, time, side_effects);
+                let entry = &mut timeline
+                    .entry(Time(time))
+                    .or_insert(Snapshot { time, states: HashMap::new() })
+                    .states;
+                for (id, unit) in eff {
+                    sim.states.insert(id, unit);
+                    entry.insert(id, unit);
                 }
                 side_effects = Vec::new();
             }
@@ -285,16 +381,26 @@ impl ClientPlan {
         // (planpaths, timeline)
         (self.gen_planpaths(), timeline)
     }
+
+    fn next_moves(self: &Self) -> HashMap<EID, UnitState> {
+        unimplemented!();
+    }
 }
 
 impl Client {
     fn new(init: Snapshot) -> Self {
         let client_a = ClientPlan::new(init.clone());
         let client_b = ClientPlan::new(init);
+        let server = Server {
+            init: client_a.init.clone(),
+            confirmed: client_a.confirmed.clone(),
+            current: client_a.current.clone(),
+        };
         let display = client_a.init.clone();
         Client {
             client_a,
             client_b,
+            server,
             display,
             planned: Timeline::new(),
             planpaths: HashMap::new(),
@@ -368,6 +474,16 @@ impl Client {
         let time = self.display.time;
         self.display = self.plan().current.clone();
         update_snapshot(&mut self.display, &self.planned, time);
+    }
+
+    fn submit_server(self: &mut Self) {
+        let lplan = self.client_a.next_moves();
+        let rplan = self.client_b.next_moves();
+        let mut moves = HashMap::new();
+        moves.insert(0, lplan[&0]);
+        moves.insert(1, rplan[&1]);
+        let result = self.server.resolve(moves);
+        unimplemented!();
     }
 }
 
@@ -459,6 +575,8 @@ impl piston_app::App for Client {
             } else if args.button == CONTROLS.switch_team {
                 self.display_a = !self.display_a;
                 self.regen();
+            } else if args.button == CONTROLS.submit {
+                self.submit_server();
             }
         }
     }
