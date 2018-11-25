@@ -125,18 +125,25 @@ fn update_snapshot(
 
 type Plan = HashMap<EID, Vec<Command>>;
 
-struct Client {
+struct ClientPlan {
     init: Snapshot,
+    confirmed: Timeline,
     current: Snapshot,
     current_commands: HashMap<EID, Option<(f64, Command)>>,
-    display: Snapshot,
-    confirmed: Timeline,
-    planned: Timeline,
     plans: Plan,
+}
+
+struct Client {
+    client_a: ClientPlan,
+    client_b: ClientPlan,
+    display: Snapshot,
     planpaths: Plan,
+    planned: Timeline,
+
     selected: EID,
     mouse: Vec2,
     playing: bool,
+    display_a: bool,
 }
 
 fn empty_map<T, U: Default>(base: &HashMap<EID, T>) -> HashMap<EID, U> {
@@ -154,6 +161,7 @@ struct Controls {
     wait: window::Button,
     playpause: window::Button,
     restart: window::Button,
+    switch_team: window::Button,
 }
 
 static CONTROLS: Controls = Controls {
@@ -164,42 +172,28 @@ static CONTROLS: Controls = Controls {
     wait:        window::Button::Keyboard(window::keyboard::Key::W),
     playpause:   window::Button::Keyboard(window::keyboard::Key::Space),
     restart:     window::Button::Keyboard(window::keyboard::Key::R),
+    switch_team: window::Button::Keyboard(window::keyboard::Key::LAlt),
 };
 
-impl Client {
+impl ClientPlan {
     fn new(init: Snapshot) -> Self {
+        let confirmed = Timeline::new();
         let current = init.clone();
-        let display = init.clone();
-        let plans = empty_map(&init.states);
         let current_commands = empty_map(&init.states);
-        let mut client = Client {
-            init,
-            current,
-            current_commands,
-            display,
-            confirmed: Timeline::new(),
-            planned: Timeline::new(),
-            plans,
-            planpaths: Plan::new(),
-
-            selected: NULL_ID,
-            mouse: [0.0, 0.0],
-            playing: false,
-        };
-        client.gen_planpaths();
-        client
+        let plans = empty_map(&init.states);
+        ClientPlan { init, confirmed, current, current_commands, plans }
     }
 
-    fn gen_planpaths(self: &mut Self) {
-        self.planpaths = self.plans.clone();
+    fn gen_planpaths(self: &Self) -> Plan {
+        self.plans.clone()
     }
 
-    fn gen_planned(self: &mut Self) {
-        self.gen_planpaths();
+    fn gen_planned(self: &Self) -> (Plan, Timeline) {
+        let planpaths = self.gen_planpaths();
         let mut sim = self.current.clone();
         let mut comm = self.current_commands.clone();
         let mut side_effects = Vec::new();
-        let mut plans: HashMap<EID, _> = self.planpaths
+        let mut plans: HashMap<EID, _> = planpaths
             .iter()
             .map(|(&id, plan)| (id, plan.iter().peekable()))
             .collect();
@@ -288,7 +282,44 @@ impl Client {
             comm.insert(id, new_comm.map(|comm| (new_comm_time, *comm)));
         }
 
-        self.planned = timeline;
+        // (planpaths, timeline)
+        (self.gen_planpaths(), timeline)
+    }
+}
+
+impl Client {
+    fn new(init: Snapshot) -> Self {
+        let client_a = ClientPlan::new(init.clone());
+        let client_b = ClientPlan::new(init);
+        let display = client_a.init.clone();
+        Client {
+            client_a,
+            client_b,
+            display,
+            planned: Timeline::new(),
+            planpaths: HashMap::new(),
+
+            mouse: [0.0, 0.0],
+            playing: false,
+            display_a: true,
+            selected: NULL_ID,
+        }
+    }
+
+    fn plan(self: &Self) -> &ClientPlan {
+        if self.display_a {
+            &self.client_a
+        } else {
+            &self.client_b
+        }
+    }
+
+    fn plan_mut(self: &mut Self) -> &mut ClientPlan {
+        if self.display_a {
+            &mut self.client_a
+        } else {
+            &mut self.client_b
+        }
     }
 
     fn unit_nearest_mouse(self: &Self) -> EID {
@@ -313,22 +344,29 @@ impl Client {
             } else {
                 NULL_ID
             };
-            let plan = self.plans.get_mut(&id);
+            let mouse = self.mouse;
+            let plan = self.plan_mut().plans.get_mut(&id);
             if plan.is_none() {
                 return;
             }
             let plan = plan.unwrap();
             match op {
                 0 => {plan.pop();},
-                1 => plan.push(Command::Nav(self.mouse)),
+                1 => plan.push(Command::Nav(mouse)),
                 2 => plan.push(Command::Shoot(mouse_id)),
                 3 => plan.push(Command::Wait(1.0)),
                 _ => panic!("edit_plan() called with {}", op),
             }
         }
-        self.gen_planned();
+        self.regen();
+    }
+
+    fn regen(self: &mut Self) {
+        let (plan, timeline) = self.plan().gen_planned();
+        self.planpaths = plan;
+        self.planned = timeline;
         let time = self.display.time;
-        self.display = self.current.clone();
+        self.display = self.plan().current.clone();
         update_snapshot(&mut self.display, &self.planned, time);
     }
 }
@@ -357,7 +395,7 @@ impl piston_app::App for Client {
 
         let path_color = [1.0, 1.0, 1.0, 1.0];
         for (id, plan) in &self.planpaths {
-            let mut pos = self.current.states[id].pos;
+            let mut pos = self.plan().current.states[id].pos;
             for command in plan {
                 if let &Command::Nav(newpos) = command {
                     let line = [
@@ -372,9 +410,10 @@ impl piston_app::App for Client {
                 }
             }
         }
-        for (id, plan) in &self.plans {
+        let client = &self.plan();
+        for (&id, plan) in &client.plans {
             let rect = [-0.25, -0.25, 0.5, 0.5];
-            let pos = self.current.states[id].pos;
+            let pos = client.current.states[&id].pos;
             let first_trans = trans.trans(pos[0], pos[1]);
             window::ellipse(path_color, rect, first_trans, graphics);
 
@@ -416,7 +455,10 @@ impl piston_app::App for Client {
             } else if args.button == CONTROLS.playpause {
                 self.playing = !self.playing;
             } else if args.button == CONTROLS.restart {
-                self.display = self.current.clone();
+                self.display = self.plan().current.clone();
+            } else if args.button == CONTROLS.switch_team {
+                self.display_a = !self.display_a;
+                self.regen();
             }
         }
     }
@@ -474,12 +516,13 @@ fn main() {
         ];
         for &(id, com) in &plan {
             client
+                .plan_mut()
                 .plans
                 .get_mut(&id)
                 .unwrap()
                 .push(com);
         }
     }
-    client.gen_planned();
+    client.regen();
     piston_app::run_until_escape(client);
 }
