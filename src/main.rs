@@ -108,6 +108,9 @@ struct Client {
     planned: Timeline,
     plans: Plan,
     planpaths: Plan,
+    selected: EID,
+    mouse: Vec2,
+    playing: bool,
 }
 
 fn empty_map<T, U: Default>(base: &HashMap<EID, T>) -> HashMap<EID, U> {
@@ -115,6 +118,27 @@ fn empty_map<T, U: Default>(base: &HashMap<EID, T>) -> HashMap<EID, U> {
         .map(|(&id, _)| (id, Default::default()))
         .collect()
 }
+
+
+struct Controls {
+    select: window::Button,
+    remove_comm: window::Button,
+    nav: window::Button,
+    shoot: window::Button,
+    wait: window::Button,
+    playpause: window::Button,
+    restart: window::Button,
+}
+
+static CONTROLS: Controls = Controls {
+    select:      window::Button::Mouse(window::mouse::MouseButton::Left),
+    nav:         window::Button::Mouse(window::mouse::MouseButton::Right),
+    remove_comm: window::Button::Keyboard(window::keyboard::Key::Backspace),
+    shoot:       window::Button::Keyboard(window::keyboard::Key::Q),
+    wait:        window::Button::Keyboard(window::keyboard::Key::W),
+    playpause:   window::Button::Keyboard(window::keyboard::Key::Space),
+    restart:     window::Button::Keyboard(window::keyboard::Key::R),
+};
 
 impl Client {
     fn new(init: Snapshot) -> Self {
@@ -131,6 +155,10 @@ impl Client {
             planned: Timeline::new(),
             plans,
             planpaths: Plan::new(),
+
+            selected: NULL_ID,
+            mouse: [0.0, 0.0],
+            playing: false,
         };
         client.gen_planpaths();
         client
@@ -236,7 +264,47 @@ impl Client {
 
         self.planned = timeline;
     }
+
+    fn unit_nearest_mouse(self: &Self) -> EID {
+        let mut select = NULL_ID;
+        let mut select_dist = 0.0;
+        for (&id, val) in &self.display.states {
+            let disp = vecmath::vec2_sub(val.pos, self.mouse);
+            let dist = vecmath::vec2_len(disp);
+            if select == NULL_ID || dist < select_dist {
+                select = id;
+                select_dist = dist;
+            }
+        }
+        return select;
+    }
+
+    fn edit_plan(self: &mut Self, op: u16) {
+        {
+            let id = self.selected;
+            let mouse_id = if op == 2 {
+                self.unit_nearest_mouse()
+            } else {
+                NULL_ID
+            };
+            let plan = self.plans.get_mut(&id);
+            if plan.is_none() {
+                return;
+            }
+            let plan = plan.unwrap();
+            match op {
+                0 => {plan.pop();},
+                1 => plan.push(Command::Nav(self.mouse)),
+                2 => plan.push(Command::Shoot(mouse_id)),
+                3 => plan.push(Command::Wait(1.0)),
+                _ => panic!("edit_plan() called with {}", op),
+            }
+        }
+        self.gen_planned();
+    }
 }
+
+static SCALE: f64 = 10.0;
 
 impl piston_app::App for Client {
     fn on_draw(
@@ -249,7 +317,7 @@ impl piston_app::App for Client {
         window::clear([0.0, 0.0, 0.0, 1.0], graphics);
 
         let unit_color = [1.0, 1.0, 1.0, 1.0];
-        let scale = 10.0;
+        let scale = SCALE;
         let trans = centre.transform.scale(scale, scale);
         for (_, unit) in &self.display.states {
             let x = unit.pos[0] - 0.5;
@@ -294,6 +362,9 @@ impl piston_app::App for Client {
         self: &mut Self,
         _args: window::UpdateArgs,
     ) {
+        if !self.playing {
+            return
+        }
         let dtime = 0.1;
         let new_time = self.display.time + dtime;
         for (_, unit) in &mut self.display.states {
@@ -312,13 +383,31 @@ impl piston_app::App for Client {
     }
     fn on_input(
         self: &mut Self,
-        _args: window::ButtonArgs,
+        args: window::ButtonArgs,
     ) {
+        if args.state == window::ButtonState::Press {
+            if args.button == CONTROLS.select {
+                self.selected = self.unit_nearest_mouse();
+            } else if args.button == CONTROLS.remove_comm {
+                self.edit_plan(0);
+            } else if args.button == CONTROLS.nav {
+                self.edit_plan(1);
+            } else if args.button == CONTROLS.shoot {
+                self.edit_plan(2);
+            } else if args.button == CONTROLS.wait {
+                self.edit_plan(3);
+            } else if args.button == CONTROLS.playpause {
+                self.playing = !self.playing;
+            } else if args.button == CONTROLS.restart {
+                self.display = self.current.clone();
+            }
+        }
     }
     fn on_mouse_move(
         self: &mut Self,
-        _mouse: [f64; 2],
+        mouse: [f64; 2],
     ) {
+        self.mouse = vecmath::vec2_scale(mouse, 1.0/SCALE);
     }
 
     fn window_name() -> &'static str {
