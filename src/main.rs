@@ -621,34 +621,53 @@ impl piston_app::App for Client {
         }
 
         let path_color = [1.0, 1.0, 1.0, 1.0];
-        for (id, plan) in &self.planpaths {
-            let mut pos = self.plan().current.states[id].pos;
-            for command in plan {
-                if let &Command::Nav(newpos) = command {
-                    let line = [
-                        pos[0],
-                        pos[1],
-                        newpos[0],
-                        newpos[1]
-                    ];
-                    let r = 1.0/scale;
-                    window::line(path_color, r, line, trans, graphics);
-                    pos = newpos;
-                }
-            }
-        }
         let client = &self.plan();
-        for (&id, plan) in &client.plans {
-            let rect = [-0.25, -0.25, 0.5, 0.5];
-            let pos = client.current.states[&id].pos;
-            let first_trans = trans.trans(pos[0], pos[1]);
-            window::ellipse(path_color, rect, first_trans, graphics);
+        for (id, plan) in &self.planpaths {
+            let mut pos_list = Vec::new();
+            let mut unit = client.current.states[&id];
+            unit.update_pos(client.current.time);
+            let mut pos = unit.pos;
 
+            if let Some((_, Command::Nav(pos))) = client.current_commands[&id]
+            {
+                pos_list.push(pos);
+            }
             for command in plan {
                 if let &Command::Nav(pos) = command {
-                    let trans = trans.trans(pos[0], pos[1]);
-                    window::ellipse(path_color, rect, trans, graphics);
+                    pos_list.push(pos);
                 }
+            }
+            for newpos in pos_list {
+                let line = [
+                    pos[0],
+                    pos[1],
+                    newpos[0],
+                    newpos[1]
+                ];
+                let r = 1.0/scale;
+                window::line(path_color, r, line, trans, graphics);
+                pos = newpos;
+            }
+        }
+        for (&id, plan) in &client.plans {
+            let rect = [-0.25, -0.25, 0.5, 0.5];
+            let mut pos_list = Vec::new();
+            let mut unit = client.current.states[&id];
+            unit.update_pos(client.current.time);
+            pos_list.push(unit.pos);
+
+            if let Some((_, Command::Nav(pos))) = client.current_commands[&id]
+            {
+                pos_list.push(pos);
+            }
+            for command in plan {
+                if let &Command::Nav(pos) = command {
+                    pos_list.push(pos);
+                }
+            }
+            for pos in pos_list {
+                let trans = trans.trans(pos[0], pos[1]);
+                window::ellipse(path_color, rect, trans, graphics);
             }
         }
     }
