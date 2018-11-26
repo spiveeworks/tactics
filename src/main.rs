@@ -21,31 +21,31 @@ pub mod prelude {
 use prelude::*;
 
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Command {
     Nav(Vec2),
     Wait(f64),
     Shoot(EID),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Weapon {
     Gun,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Action {
     Mobile,
     Shoot,
     Dead,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Effect {
     Die,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 struct UnitState {
     pos: Vec2,
     vel: Vec2,
@@ -64,6 +64,62 @@ impl UnitState {
         let pos = vec2_add(self.pos, vel);
         self.pos = pos;
         self.time = new_time;
+    }
+
+    fn command_start(self: &mut Self, comm: Option<Command>, time: f64) {
+        self.update_pos(time);
+        match comm {
+            None => (),
+            Some(Command::Nav(_)) => {
+                self.vel = [0.0, 0.0];
+            },
+            Some(Command::Shoot(_)) => {
+                self.action = Action::Mobile;
+                self.target_id = NULL_ID;
+                self.target_loc = [0.0, 0.0];
+            },
+            Some(Command::Wait(_)) => (),
+        }
+    }
+
+    fn command_end(self: &mut Self, comm: Option<Command>) -> f64 {
+        let duration;
+        match comm {
+            None => duration = 0.0,
+            Some(Command::Nav(pos)) => {
+                let disp = vecmath::vec2_sub(pos, self.pos);
+                let max_speed = 1.0;
+                let min_duration = vecmath::vec2_len(disp) / max_speed;
+                duration = min_duration.ceil();
+                self.vel = vecmath::vec2_scale(disp, 1.0/duration);
+            },
+            Some(Command::Wait(_duration)) => {
+                duration = _duration
+            },
+            Some(Command::Shoot(target)) => {
+                self.target_id = target;
+                self.action = Action::Shoot;
+                duration = 5.0;
+            },
+        }
+        return duration
+    }
+
+    // infers a command that would start with the given unit state, and might
+    // finish at the given time
+    fn infer_command(self: Self, finish: f64) -> Option<(f64, Command)> {
+        use self::Action::*;
+        match self.action {
+            Shoot => Some((self.time + 5.0, Command::Shoot(self.target_id))),
+            Mobile => if self.vel == [0.0, 0.0] {
+                None
+            } else {
+                let mut dummy = self;
+                dummy.update_pos(finish);
+                Some((finish, Command::Nav(dummy.pos)))
+            },
+            _ => None,
+        }
     }
 }
 
@@ -186,7 +242,11 @@ impl Server {
         let min_internal = upd.iter().map(|(_id, unit)| Time(unit.time)).min();
         let ext = self.consequence();
         let min_external = ext.as_ref().map(|&(time, _)| Time(time));
-        let min = cmp::min(min_internal, min_external);
+        let min = match (min_internal, min_external) {
+            (None, y) => y,
+            (x, None) => x,
+            (Some(x), Some(y)) => Some(cmp::min(x, y)),
+        };
 
         if min.is_none() {
             return Err(NULL_ID);
@@ -240,6 +300,7 @@ impl Server {
         let mut result = HashMap::new();
         for (id, effect) in eff {
             use self::Effect::*;
+            println!("killing: {}", id);
             let mut state = snap.states[&id];
             match effect {
                 Die => {
@@ -372,8 +433,7 @@ impl ClientPlan {
             sim.states.insert(id, state);
             let timeline_entry = timeline.entry(Time(time));
             timeline_entry
-                .or_insert(Snapshot { time, states: HashMap::new() })
-                .states
+                .or_insert(Snapshot { time, states: HashMap::new() }) .states
                 .insert(id, state);
             comm.insert(id, new_comm.map(|comm| (new_comm_time, *comm)));
         }
@@ -383,7 +443,49 @@ impl ClientPlan {
     }
 
     fn next_moves(self: &Self) -> HashMap<EID, UnitState> {
-        unimplemented!();
+        let mut moves = HashMap::new();
+        for (&id, &comm) in &self.current_commands {
+            let mut state = self.current.states[&id];
+            let new_comm = self
+                .plans
+                .get(&id)
+                .and_then(|x| x.get(0))
+                .cloned();
+            let time = comm.map_or(self.current.time, |c|c.0);
+            let comm = comm.map(|c|c.1);
+            state.command_start(comm, time);
+            state.command_end(new_comm);
+            moves.insert(id, state);
+        }
+        moves
+    }
+
+    fn accept_outcome(
+        self: &mut Self,
+        expected: &HashMap<EID, UnitState>,
+        outcome: &Snapshot,
+    ) {
+        // TODO figure out a consistent way of dealing with the 0.1 buffer
+        self.current.time = outcome.time + 0.1;
+        self.confirmed.insert(Time(outcome.time), outcome.clone());
+        for (&id, &unit) in &outcome.states {
+            self.current.states.insert(id, unit);
+            let mut expected = expected[&id];
+            if unit == expected {
+                let comm = if self.plans[&id].len() > 0 {
+                    Some(self.plans.get_mut(&id).unwrap().remove(0))
+                } else {
+                    None
+                };
+                let dur = {unit}.command_end(comm);
+                let comm = comm.map(|c| (self.current.time + dur, c));
+                self.current_commands.insert(id, comm);
+            } else {
+                self.plans.insert(id, Vec::new());
+                let comm = unit.infer_command(self.current.time);
+                self.current_commands.insert(id, comm);
+            }
+        }
     }
 }
 
@@ -471,7 +573,11 @@ impl Client {
         let (plan, timeline) = self.plan().gen_planned();
         self.planpaths = plan;
         self.planned = timeline;
-        let time = self.display.time;
+        let dt = self.display.time;
+        let ct = self.plan().current.time;
+        // TODO handle dt < ct using normal outcome replay logic,
+        // maybe even reset dt to old ct in submit_server()
+        let time = cmp::max(Time(dt), Time(ct)).0;
         self.display = self.plan().current.clone();
         update_snapshot(&mut self.display, &self.planned, time);
     }
@@ -482,8 +588,13 @@ impl Client {
         let mut moves = HashMap::new();
         moves.insert(0, lplan[&0]);
         moves.insert(1, rplan[&1]);
-        let result = self.server.resolve(moves);
-        unimplemented!();
+        let result = self
+            .server
+            .resolve(moves)
+            .expect("Server rejected plan");
+        self.client_a.accept_outcome(&lplan, &result);
+        self.client_b.accept_outcome(&rplan, &result);
+        self.regen();
     }
 }
 
