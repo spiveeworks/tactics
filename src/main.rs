@@ -21,31 +21,31 @@ pub mod prelude {
 use prelude::*;
 
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Command {
     Nav(Vec2),
     Wait(f64),
     Shoot(EID),
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Weapon {
     Gun,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Action {
     Mobile,
     Shoot,
     Dead,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Effect {
     Die,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 struct UnitState {
     pos: Vec2,
     vel: Vec2,
@@ -66,8 +66,10 @@ impl UnitState {
         self.time = new_time;
     }
 
-    fn command_start(self: &mut Self, comm: Option<Command>, time: f64) {
-        self.update_pos(time);
+    fn command_end(self: &mut Self, comm: Option<Command>, time: f64) {
+        if comm.is_some() {
+            self.update_pos(time);
+        }
         match comm {
             None => (),
             Some(Command::Nav(_)) => {
@@ -82,7 +84,7 @@ impl UnitState {
         }
     }
 
-    fn command_end(self: &mut Self, comm: Option<Command>) -> f64 {
+    fn command_start(self: &mut Self, comm: Option<Command>) -> f64 {
         let duration;
         match comm {
             None => duration = 0.0,
@@ -300,7 +302,6 @@ impl Server {
         let mut result = HashMap::new();
         for (id, effect) in eff {
             use self::Effect::*;
-            println!("killing: {}", id);
             let mut state = snap.states[&id];
             match effect {
                 Die => {
@@ -445,7 +446,8 @@ impl ClientPlan {
     fn next_moves(self: &Self) -> HashMap<EID, UnitState> {
         let mut moves = HashMap::new();
         for (&id, &comm) in &self.current_commands {
-            let mut state = self.current.states[&id];
+            let old_state = self.current.states[&id];
+            let mut state = old_state;
             let new_comm = self
                 .plans
                 .get(&id)
@@ -453,9 +455,11 @@ impl ClientPlan {
                 .cloned();
             let time = comm.map_or(self.current.time, |c|c.0);
             let comm = comm.map(|c|c.1);
-            state.command_start(comm, time);
-            state.command_end(new_comm);
-            moves.insert(id, state);
+            state.command_end(comm, time);
+            state.command_start(new_comm);
+            if state != old_state {
+                moves.insert(id, state);
+            }
         }
         moves
     }
@@ -470,14 +474,17 @@ impl ClientPlan {
         self.confirmed.insert(Time(outcome.time), outcome.clone());
         for (&id, &unit) in &outcome.states {
             self.current.states.insert(id, unit);
-            let mut expected = expected[&id];
+            let mut expected = expected
+                .get(&id)
+                .cloned()
+                .unwrap_or(self.current.states[&id]);
             if unit == expected {
                 let comm = if self.plans[&id].len() > 0 {
                     Some(self.plans.get_mut(&id).unwrap().remove(0))
                 } else {
                     None
                 };
-                let dur = {unit}.command_end(comm);
+                let dur = {unit}.command_start(comm);
                 let comm = comm.map(|c| (self.current.time + dur, c));
                 self.current_commands.insert(id, comm);
             } else {
@@ -586,8 +593,12 @@ impl Client {
         let lplan = self.client_a.next_moves();
         let rplan = self.client_b.next_moves();
         let mut moves = HashMap::new();
-        moves.insert(0, lplan[&0]);
-        moves.insert(1, rplan[&1]);
+        if let Some(&next_move) = lplan.get(&0) {
+            moves.insert(0, next_move);
+        }
+        if let Some(&next_move) = rplan.get(&1) {
+            moves.insert(1, next_move);
+        }
         let result = self
             .server
             .resolve(moves)
