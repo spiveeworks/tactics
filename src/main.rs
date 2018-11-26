@@ -185,8 +185,6 @@ fn update_snapshot(
 type Plan = HashMap<EID, Vec<Command>>;
 
 struct Server {
-    init: Snapshot,
-    confirmed: Timeline,
     current: Snapshot,
 }
 
@@ -281,7 +279,6 @@ impl Server {
             }
         }
 
-        self.confirmed.insert(Time(events.time), events.clone());
         self.current.time = events.time;
         for (&id, &unit) in &events.states {
             self.current.states.insert(id, unit);
@@ -501,8 +498,6 @@ impl Client {
         let client_a = ClientPlan::new(init.clone());
         let client_b = ClientPlan::new(init);
         let server = Server {
-            init: client_a.init.clone(),
-            confirmed: client_a.confirmed.clone(),
             current: client_a.current.clone(),
         };
         let display = client_a.init.clone();
@@ -580,13 +575,18 @@ impl Client {
         let (plan, timeline) = self.plan().gen_planned();
         self.planpaths = plan;
         self.planned = timeline;
-        let dt = self.display.time;
-        let ct = self.plan().current.time;
-        // TODO handle dt < ct using normal outcome replay logic,
-        // maybe even reset dt to old ct in submit_server()
-        let time = cmp::max(Time(dt), Time(ct)).0;
-        self.display = self.plan().current.clone();
-        update_snapshot(&mut self.display, &self.planned, time);
+        let time = self.display.time;
+        if time < self.plan().current.time {
+            self.display = self.plan().init.clone();
+            if self.display_a {
+                update_snapshot(&mut self.display, &self.client_a.confirmed, time);
+            } else {
+                update_snapshot(&mut self.display, &self.client_b.confirmed, time);
+            }
+        } else {
+            self.display = self.plan().current.clone();
+            update_snapshot(&mut self.display, &self.planned, time);
+        }
     }
 
     fn submit_server(self: &mut Self) {
@@ -692,7 +692,21 @@ impl piston_app::App for Client {
         }
         let dtime = 0.1;
         let new_time = self.display.time + dtime;
-        update_snapshot(&mut self.display, &self.planned, new_time);
+        let tl;
+        // redundancy because borrow checker
+        if new_time <= self.plan().current.time {
+            tl = if self.display_a {
+                &self.client_a.confirmed
+            } else {
+                &self.client_b.confirmed
+            }
+        } else {
+            if self.display.time <= self.plan().current.time {
+                self.display = self.plan().current.clone();
+            }
+            tl = &self.planned;
+        }
+        update_snapshot(&mut self.display, tl, new_time);
     }
     fn on_input(
         self: &mut Self,
@@ -712,7 +726,13 @@ impl piston_app::App for Client {
             } else if args.button == CONTROLS.playpause {
                 self.playing = !self.playing;
             } else if args.button == CONTROLS.restart {
-                self.display = self.plan().current.clone();
+                let dt = self.display.time;
+                let ct = self.plan().current.time;
+                if dt > ct || dt == 0.0 {
+                    self.display = self.plan().current.clone();
+                } else {
+                    self.display = self.plan().init.clone();
+                }
             } else if args.button == CONTROLS.switch_team {
                 self.display_a = !self.display_a;
                 self.regen();
