@@ -482,7 +482,7 @@ impl ClientPlan {
                     None
                 };
                 let dur = {unit}.command_start(comm);
-                let comm = comm.map(|c| (self.current.time + dur, c));
+                let comm = comm.map(|c| (unit.time + dur, c));
                 self.current_commands.insert(id, comm);
             } else {
                 self.plans.insert(id, Vec::new());
