@@ -92,7 +92,13 @@ impl UnitState {
                 let disp = vecmath::vec2_sub(pos, self.pos);
                 let max_speed = 1.0;
                 let min_duration = vecmath::vec2_len(disp) / max_speed;
-                duration = min_duration.ceil();
+                let maybe_duration = min_duration.ceil();
+                // prevents NaN, but 0-length commands cause problems anyway
+                if maybe_duration == 0.0 {
+                    duration = 0.1;
+                } else {
+                    duration = maybe_duration;
+                }
                 self.vel = vecmath::vec2_scale(disp, 1.0/duration);
             },
             Some(Command::Wait(_duration)) => {
@@ -249,7 +255,10 @@ impl Server {
         };
 
         if min.is_none() {
-            return Err(NULL_ID);
+            return Ok(Snapshot {
+                time: self.current.time,
+                states: HashMap::new(),
+            })
         }
         let mut events = Snapshot {
             time: min.unwrap().0,
