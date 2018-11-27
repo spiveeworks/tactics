@@ -92,7 +92,7 @@ impl UnitState {
                 let disp = vecmath::vec2_sub(pos, self.pos);
                 let max_speed = 1.0;
                 let min_duration = vecmath::vec2_len(disp) / max_speed;
-                let maybe_duration = min_duration.ceil();
+                let maybe_duration = (min_duration*10.0).ceil()*0.1;
                 // prevents NaN, but 0-length commands cause problems anyway
                 if maybe_duration == 0.0 {
                     duration = 0.1;
