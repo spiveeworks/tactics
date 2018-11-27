@@ -1,0 +1,9 @@
+[package]
+name = "design"
+version = "0.1.0"
+authors = ["SpiveeWorks <spiveehere@gmail.com>"]
+
+[dependencies]
+piston_app = { git = "https://github.com/spiveeworks/piston_app" }
+piston_window = "0.85"
+vecmath = "0.3"
