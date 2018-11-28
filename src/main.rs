@@ -5,9 +5,9 @@ extern crate vecmath;
 use piston_window as window;
 
 use std::cmp;
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 
+mod model;
 
 pub mod prelude {
     pub type EID = usize;
@@ -16,6 +16,31 @@ pub mod prelude {
 
     pub type Vec2 = ::vecmath::Vector2<f64>;
     pub use vecmath::{vec2_scale, vec2_add};
+
+    // should use NotNaN crate
+    #[derive(Clone, Copy)]
+    pub struct Time(pub f64);
+
+    use std::cmp;
+    impl PartialEq for Time {
+        fn eq(self: &Self, other: &Self) -> bool {
+            self.0 == other.0
+        }
+    }
+    impl Eq for Time {}
+
+    impl PartialOrd for Time {
+        fn partial_cmp(self: &Self, other: &Self) -> Option<cmp::Ordering> {
+            PartialOrd::partial_cmp(&self.0, &other.0)
+        }
+    }
+
+    impl Ord for Time {
+        fn cmp(self: &Self, other: &Self) -> cmp::Ordering {
+            cmp::PartialOrd::partial_cmp(&self.0, &other.0)
+                .expect("Got NaN as time...")
+        }
+    }
 }
 
 use prelude::*;
@@ -29,36 +54,11 @@ enum Command {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Weapon {
-    Gun,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Action {
-    Mobile,
-    Shoot,
-    Dead,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Effect {
     Die,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-struct UnitState {
-    pos: Vec2,
-    vel: Vec2,
-    weapon: Weapon,
-    action: Action,
-    target_loc: Vec2,
-    target_id: EID,
-
-    time: f64,
-    id: EID,
-}
-
-impl UnitState {
+impl model::UnitState {
     fn update_pos(self: &mut Self, new_time: f64) {
         let vel = vec2_scale(self.vel, new_time - self.time);
         let pos = vec2_add(self.pos, vel);
@@ -76,8 +76,7 @@ impl UnitState {
                 self.vel = [0.0, 0.0];
             },
             Some(Command::Shoot(_)) => {
-                self.action = Action::Mobile;
-                self.target_id = NULL_ID;
+                self.action = model::Action::Mobile; self.target_id = NULL_ID;
                 self.target_loc = [0.0, 0.0];
             },
             Some(Command::Wait(_)) => (),
@@ -106,7 +105,7 @@ impl UnitState {
             },
             Some(Command::Shoot(target)) => {
                 self.target_id = target;
-                self.action = Action::Shoot;
+                self.action = model::Action::Shoot;
                 duration = 5.0;
             },
         }
@@ -116,7 +115,7 @@ impl UnitState {
     // infers a command that would start with the given unit state, and might
     // finish at the given time
     fn infer_command(self: Self, finish: f64) -> Option<(f64, Command)> {
-        use self::Action::*;
+        use model::Action::*;
         match self.action {
             Shoot => Some((self.time + 5.0, Command::Shoot(self.target_id))),
             Mobile => if self.vel == [0.0, 0.0] {
@@ -131,73 +130,16 @@ impl UnitState {
     }
 }
 
-#[derive(Clone, Copy)]
-struct Time(f64);
-
-impl PartialEq for Time {
-    fn eq(self: &Self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-impl Eq for Time {}
-
-impl PartialOrd for Time {
-    fn partial_cmp(self: &Self, other: &Self) -> Option<cmp::Ordering> {
-        PartialOrd::partial_cmp(&self.0, &other.0)
-    }
-}
-
-impl Ord for Time {
-    fn cmp(self: &Self, other: &Self) -> cmp::Ordering {
-        cmp::PartialOrd::partial_cmp(&self.0, &other.0)
-            .expect("Got NaN as time...")
-    }
-}
-
-type Timeline = BTreeMap<Time, Snapshot>;
-
-#[derive(Clone)]
-struct Snapshot {
-    time: f64,
-    states: HashMap<EID, UnitState>,
-}
-
-fn update_snapshot_precise(
-    current: &mut Snapshot,
-    timeline: &Timeline,
-    new_time: f64,
-) {
-    let t1 = Time(current.time);
-    let t2 = Time(new_time);
-    for (_, units) in timeline.range(t1..t2) {
-        for (&id, &unit) in &units.states {
-            current.states.insert(id, unit);
-        }
-    }
-    current.time = new_time;
-}
-
-fn update_snapshot(
-    current: &mut Snapshot,
-    timeline: &Timeline,
-    new_time: f64,
-) {
-    update_snapshot_precise(current, timeline, new_time);
-    for (_, unit) in &mut current.states {
-        unit.update_pos(new_time);
-    }
-}
-
 type Plan = HashMap<EID, Vec<Command>>;
 
 struct Server {
-    current: Snapshot,
+    current: model::Snapshot,
 }
 
 struct ClientPlan {
-    init: Snapshot,
-    confirmed: Timeline,
-    current: Snapshot,
+    init: model::Snapshot,
+    confirmed: model::Timeline,
+    current: model::Snapshot,
     current_commands: HashMap<EID, Option<(f64, Command)>>,
     plans: Plan,
 }
@@ -206,9 +148,9 @@ struct Client {
     client_a: ClientPlan,
     client_b: ClientPlan,
     server: Server,
-    display: Snapshot,
+    display: model::Snapshot,
     planpaths: Plan,
-    planned: Timeline,
+    planned: model::Timeline,
 
     selected: EID,
     mouse: Vec2,
@@ -227,7 +169,7 @@ impl Server {
         let mut result: Option<(f64, Vec<(EID, Effect)>)> = None;
         for (_, &unit) in &self.current.states {
             let mut new_result = None;
-            if let Action::Shoot = unit.action {
+            if let model::Action::Shoot = unit.action {
                 new_result =
                     Some((unit.time + 5.0, unit.target_id, Effect::Die))
             }
@@ -242,8 +184,8 @@ impl Server {
         result
     }
 
-    fn resolve(self: &mut Self, upd: HashMap<EID, UnitState>)
-        -> Result<Snapshot, EID>
+    fn resolve(self: &mut Self, upd: HashMap<EID, model::UnitState>)
+        -> Result<model::Snapshot, EID>
     {
         let min_internal = upd.iter().map(|(_id, unit)| Time(unit.time)).min();
         let ext = self.consequence();
@@ -255,12 +197,12 @@ impl Server {
         };
 
         if min.is_none() {
-            return Ok(Snapshot {
+            return Ok(model::Snapshot {
                 time: self.current.time,
                 states: HashMap::new(),
             })
         }
-        let mut events = Snapshot {
+        let mut events = model::Snapshot {
             time: min.unwrap().0,
             states: HashMap::new(),
         };
@@ -296,15 +238,15 @@ impl Server {
         Ok(events)
     }
 
-    fn is_valid(self: &Self, id: EID, unit: UnitState) -> bool {
+    fn is_valid(self: &Self, id: EID, unit: model::UnitState) -> bool {
         true
     }
 
     fn apply_effects(
-        snap: &Snapshot,
+        snap: &model::Snapshot,
         time: f64,
         eff: Vec<(EID, Effect)>,
-    ) -> HashMap<EID, UnitState> {
+    ) -> HashMap<EID, model::UnitState> {
         let mut result = HashMap::new();
         for (id, effect) in eff {
             use self::Effect::*;
@@ -312,7 +254,7 @@ impl Server {
             match effect {
                 Die => {
                     state.update_pos(time);
-                    state.action = Action::Dead;
+                    state.action = model::Action::Dead;
                     state.vel = [0.0, 0.0];
                     state.target_id = NULL_ID;
                     state.target_loc = [0.0, 0.0];
@@ -349,8 +291,8 @@ static CONTROLS: Controls = Controls {
 };
 
 impl ClientPlan {
-    fn new(init: Snapshot) -> Self {
-        let confirmed = Timeline::new();
+    fn new(init: model::Snapshot) -> Self {
+        let confirmed = model::Timeline::new();
         let current = init.clone();
         let current_commands = empty_map(&init.states);
         let plans = empty_map(&init.states);
@@ -361,7 +303,7 @@ impl ClientPlan {
         self.plans.clone()
     }
 
-    fn gen_planned(self: &Self) -> (Plan, Timeline) {
+    fn gen_planned(self: &Self) -> (Plan, model::Timeline) {
         let planpaths = self.gen_planpaths();
         let mut sim = self.current.clone();
         let mut comm = self.current_commands.clone();
@@ -370,7 +312,7 @@ impl ClientPlan {
             .iter()
             .map(|(&id, plan)| (id, plan.iter().peekable()))
             .collect();
-        let mut timeline = Timeline::new();
+        let mut timeline = model::Timeline::new();
 
         loop {
             let mut next: Option<(f64, EID)> = None;
@@ -386,13 +328,9 @@ impl ClientPlan {
             if next.is_none() || next.unwrap().0 > sim.time {
                 let time = sim.time;
                 let eff = Server::apply_effects(&sim, time, side_effects);
-                let entry = &mut timeline
-                    .entry(Time(time))
-                    .or_insert(Snapshot { time, states: HashMap::new() })
-                    .states;
-                for (id, unit) in eff {
-                    sim.states.insert(id, unit);
-                    entry.insert(id, unit);
+                for (_, unit) in eff {
+                    sim.insert(unit);
+                    timeline.insert(unit);
                 }
                 side_effects = Vec::new();
             }
@@ -412,7 +350,7 @@ impl ClientPlan {
                 },
                 Some((_, Command::Shoot(_))) => {
                     side_effects.push((state.target_id, Effect::Die));
-                    state.action = Action::Mobile;
+                    state.action = model::Action::Mobile;
                     state.target_id = NULL_ID;
                     state.target_loc = [0.0, 0.0];
                 },
@@ -434,14 +372,11 @@ impl ClientPlan {
                 Some(Command::Shoot(target)) => {
                     new_comm_time += 5.0;
                     state.target_id = *target;
-                    state.action = Action::Shoot;
+                    state.action = model::Action::Shoot;
                 },
             }
-            sim.states.insert(id, state);
-            let timeline_entry = timeline.entry(Time(time));
-            timeline_entry
-                .or_insert(Snapshot { time, states: HashMap::new() }) .states
-                .insert(id, state);
+            sim.insert(state);
+            timeline.insert(state);
             comm.insert(id, new_comm.map(|comm| (new_comm_time, *comm)));
         }
 
@@ -449,7 +384,7 @@ impl ClientPlan {
         (self.gen_planpaths(), timeline)
     }
 
-    fn next_moves(self: &Self) -> HashMap<EID, UnitState> {
+    fn next_moves(self: &Self) -> HashMap<EID, model::UnitState> {
         let mut moves = HashMap::new();
         for (&id, &comm) in &self.current_commands {
             let old_state = self.current.states[&id];
@@ -472,12 +407,12 @@ impl ClientPlan {
 
     fn accept_outcome(
         self: &mut Self,
-        expected: &HashMap<EID, UnitState>,
-        outcome: &Snapshot,
+        expected: &HashMap<EID, model::UnitState>,
+        outcome: &model::Snapshot,
     ) {
         // TODO figure out a consistent way of dealing with the 0.1 buffer
         self.current.time = outcome.time + 0.1;
-        self.confirmed.insert(Time(outcome.time), outcome.clone());
+        self.confirmed.snapshots.insert(Time(outcome.time), outcome.clone());
         for (&id, &unit) in &outcome.states {
             self.current.states.insert(id, unit);
             let mut expected = expected
@@ -503,7 +438,7 @@ impl ClientPlan {
 }
 
 impl Client {
-    fn new(init: Snapshot) -> Self {
+    fn new(init: model::Snapshot) -> Self {
         let client_a = ClientPlan::new(init.clone());
         let client_b = ClientPlan::new(init);
         let server = Server {
@@ -515,7 +450,7 @@ impl Client {
             client_b,
             server,
             display,
-            planned: Timeline::new(),
+            planned: model::Timeline::new(),
             planpaths: HashMap::new(),
 
             mouse: [0.0, 0.0],
@@ -588,13 +523,13 @@ impl Client {
         if time < self.plan().current.time {
             self.display = self.plan().init.clone();
             if self.display_a {
-                update_snapshot(&mut self.display, &self.client_a.confirmed, time);
+                self.display.update(&self.client_a.confirmed, time);
             } else {
-                update_snapshot(&mut self.display, &self.client_b.confirmed, time);
+                self.display.update(&self.client_b.confirmed, time);
             }
         } else {
             self.display = self.plan().current.clone();
-            update_snapshot(&mut self.display, &self.planned, time);
+            self.display.update(&self.planned, time);
         }
     }
 
@@ -715,7 +650,7 @@ impl piston_app::App for Client {
             }
             tl = &self.planned;
         }
-        update_snapshot(&mut self.display, tl, new_time);
+        self.display.update(tl, new_time);
     }
     fn on_input(
         self: &mut Self,
@@ -767,29 +702,29 @@ impl piston_app::App for Client {
 
 
 fn main() {
-    let mut init = Snapshot {
+    let mut init = model::Snapshot {
         time: 0.0,
         states: HashMap::new(),
     };
-    let killr = UnitState {
+    let killr = model::UnitState {
         id: 0,
         pos: [20.0, 30.0],
         vel: [0.0, 0.0],
         time: 0.0,
 
-        weapon: Weapon::Gun,
-        action: Action::Mobile,
+        weapon: model::Weapon::Gun,
+        action: model::Action::Mobile,
         target_id: NULL_ID,
         target_loc: [0.0, 0.0],
     };
-    let killd = UnitState {
+    let killd = model::UnitState {
         id: 1,
         pos: [40.0, 40.0],
         vel: [0.0, 0.0],
         time: 0.0,
 
-        weapon: Weapon::Gun,
-        action: Action::Mobile,
+        weapon: model::Weapon::Gun,
+        action: model::Action::Mobile,
         target_id: NULL_ID,
         target_loc: [0.0, 0.0],
     };
