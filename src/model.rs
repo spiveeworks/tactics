@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::iter;
 
 use prelude::*;
 
@@ -37,14 +38,27 @@ impl Timeline {
         Timeline { snapshots: BTreeMap::new() }
     }
     pub fn insert(self: &mut Self, state: UnitState) -> Option<UnitState> {
-        let default_snap = Snapshot {
-            time: state.time,
-            states: HashMap::new(),
-        };
         self.snapshots
             .entry(Time(state.time))
-            .or_insert(default_snap)
+            .or_insert(Snapshot::with_time(state.time))
             .insert(state)
+    }
+    pub fn first(self: Self) -> Snapshot {
+        self.snapshots
+            .into_iter()
+            .next()
+            .map(|(_, x)| x)
+            .unwrap_or(Snapshot::new())
+    }
+}
+
+impl iter::FromIterator<UnitState> for Timeline {
+    fn from_iter<I: IntoIterator<Item=UnitState>>(iter: I) -> Self {
+        let mut result = Timeline::new();
+        for x in iter {
+            result.insert(x);
+        }
+        result
     }
 }
 
@@ -55,6 +69,15 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    pub fn new() -> Self {
+        Snapshot::with_time(0.0)
+    }
+    pub fn with_time(time: f64) -> Self {
+        Snapshot {
+            time,
+            states: HashMap::new(),
+        }
+    }
     pub fn insert(self: &mut Self, state: UnitState) -> Option<UnitState> {
         self.states
             .insert(state.id, state)
@@ -68,9 +91,7 @@ impl Snapshot {
         let t1 = Time(self.time);
         let t2 = Time(new_time);
         for (_, units) in timeline.snapshots.range(t1..t2) {
-            for (&id, &unit) in &units.states {
-                self.states.insert(id, unit);
-            }
+            self.copy_units(units);
         }
         self.time = new_time;
     }
@@ -85,4 +106,31 @@ impl Snapshot {
             unit.update_pos(new_time);
         }
     }
+
+    pub fn copy_units(
+        self: &mut Snapshot,
+        other: &Snapshot,
+    ) {
+        for (_, &unit) in &other.states {
+            self.insert(unit);
+        }
+    }
 }
+
+impl iter::FromIterator<UnitState> for Snapshot {
+    fn from_iter<I: IntoIterator<Item=UnitState>>(iter: I) -> Self {
+        let mut result = Snapshot::new();
+        for x in iter {
+            if result.time < x.time {
+                result.time = x.time;
+            }
+            if let Some(&old) = result.states.get(&x.id) {
+                if old.time <= x.time {
+                    result.insert(old);
+                }
+            }
+        }
+        result
+    }
+}
+

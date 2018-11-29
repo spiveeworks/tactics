@@ -4,7 +4,6 @@ extern crate vecmath;
 
 use piston_window as window;
 
-use std::cmp;
 use std::collections::HashMap;
 
 mod model;
@@ -66,50 +65,61 @@ impl model::UnitState {
         self.time = new_time;
     }
 
-    fn command_end(self: &mut Self, comm: Option<Command>, time: f64) {
-        if comm.is_some() {
-            self.update_pos(time);
-        }
+    fn command_end(self: &mut Self, comm: Command, time: f64) {
+        self.update_pos(time);
         match comm {
-            None => (),
-            Some(Command::Nav(_)) => {
+            Command::Nav(_) => {
                 self.vel = [0.0, 0.0];
             },
-            Some(Command::Shoot(_)) => {
+            Command::Shoot(_) => {
                 self.action = model::Action::Mobile; self.target_id = NULL_ID;
                 self.target_loc = [0.0, 0.0];
             },
-            Some(Command::Wait(_)) => (),
+            Command::Wait(_) => (),
         }
     }
 
-    fn command_start(self: &mut Self, comm: Option<Command>) -> f64 {
-        let duration;
+    fn command_start(self: &mut Self, comm: Command) -> f64 {
+        let duration = self.command_duration(comm);
         match comm {
-            None => duration = 0.0,
-            Some(Command::Nav(pos)) => {
+            Command::Nav(pos) => {
                 let disp = vecmath::vec2_sub(pos, self.pos);
-                let max_speed = 1.0;
-                let min_duration = vecmath::vec2_len(disp) / max_speed;
-                let maybe_duration = (min_duration*10.0).ceil()*0.1;
-                // prevents NaN, but 0-length commands cause problems anyway
-                if maybe_duration == 0.0 {
-                    duration = 0.1;
-                } else {
-                    duration = maybe_duration;
-                }
                 self.vel = vecmath::vec2_scale(disp, 1.0/duration);
             },
-            Some(Command::Wait(_duration)) => {
-                duration = _duration
-            },
-            Some(Command::Shoot(target)) => {
+            Command::Shoot(target) => {
                 self.target_id = target;
                 self.action = model::Action::Shoot;
-                duration = 5.0;
+            },
+            Command::Wait(_) => (),
+        }
+        duration
+    }
+
+    fn walk_duration(self: &Self, pos: Vec2) -> f64 {
+        let disp = vecmath::vec2_sub(pos, self.pos);
+        let max_speed = 1.0;
+        let min_duration = vecmath::vec2_len(disp) / max_speed;
+        let duration = (min_duration*10.0).ceil()*0.1;
+        // prevents NaN, but 0-length commands currently cause problems anyway
+        if duration == 0.0 {
+            0.1
+        } else {
+            duration
+        }
+    }
+
+    fn command_duration(self: &Self, comm: Command) -> f64 {
+        match comm {
+            Command::Nav(pos) => {
+                self.walk_duration(pos)
+            },
+            Command::Wait(duration) => {
+                duration
+            },
+            Command::Shoot(_) => {
+                5.0
             },
         }
-        return duration
     }
 
     // infers a command that would start with the given unit state, and might
@@ -165,104 +175,81 @@ fn empty_map<T, U: Default>(base: &HashMap<EID, T>) -> HashMap<EID, U> {
 }
 
 impl Server {
-    fn consequence(self: &Self) -> Option<(f64, Vec<(EID, Effect)>)> {
-        let mut result: Option<(f64, Vec<(EID, Effect)>)> = None;
+    fn consequence(self: &Self) -> Vec<(f64, EID, Effect)> {
+        let mut result = Vec::new();
         for (_, &unit) in &self.current.states {
-            let mut new_result = None;
-            if let model::Action::Shoot = unit.action {
-                new_result =
-                    Some((unit.time + 5.0, unit.target_id, Effect::Die))
-            }
-            if let Some((time, id, eff)) = new_result {
-                if result.is_none() || time < result.as_ref().unwrap().0 {
-                    result = Some((time, vec![(id, eff)]));
-                } else if time == result.as_ref().unwrap().0 {
-                    result.as_mut().unwrap().1.push((id, eff));
+            if unit.action == model::Action::Shoot {
+                let target = unit.target_id;
+                let curr = self.current.states[&target];
+                if curr.action != model::Action::Dead {
+                    result.push((unit.time + 5.0, target, Effect::Die));
                 }
             }
         }
         result
     }
 
-    fn resolve(self: &mut Self, upd: HashMap<EID, model::UnitState>)
-        -> Result<model::Snapshot, EID>
+    fn resolve<I>(self: &mut Self, upd: I) -> Result<model::Snapshot, EID>
+        where I: Iterator<Item = model::UnitState>
     {
-        let min_internal = upd.iter().map(|(_id, unit)| Time(unit.time)).min();
         let ext = self.consequence();
-        let min_external = ext.as_ref().map(|&(time, _)| Time(time));
-        let min = match (min_internal, min_external) {
-            (None, y) => y,
-            (x, None) => x,
-            (Some(x), Some(y)) => Some(cmp::min(x, y)),
-        };
 
-        if min.is_none() {
-            return Ok(model::Snapshot {
-                time: self.current.time,
-                states: HashMap::new(),
-            })
-        }
-        let mut events = model::Snapshot {
-            time: min.unwrap().0,
-            states: HashMap::new(),
-        };
-
-        for (id, unit) in upd {
-            if unit.time == events.time {
-                if self.is_valid(id, unit) {
-                    events.states.insert(id, unit);
-                } else {
-                    return Err(id);
-                }
+        let mut sorted_states = model::Timeline::new();
+        for unit in upd {
+            if !self.is_valid(unit) {
+                return Err(unit.id);
             }
+            sorted_states.insert(unit);
         }
+        let mut snap = sorted_states.first();
 
-        if let Some((time, ext)) = ext {
-            if time == events.time {
-                let eff_upd = Self::apply_effects(
-                    &self.current,
+        for (time, id, effect) in ext {
+            if snap.states.len() == 0 || snap.time > time {
+                snap = model::Snapshot::with_time(time);
+            }
+            if snap.time == time {
+                let mut state = snap
+                    .states
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| self.current.states[&id]);
+                Self::apply_effects(
+                    &mut state,
                     time,
-                    ext,
+                    effect,
                 );
-                for (id, unit) in eff_upd {
-                    events.states.insert(id, unit);
-                }
+                snap.insert(state);
             }
         }
 
-        self.current.time = events.time;
-        for (&id, &unit) in &events.states {
-            self.current.states.insert(id, unit);
+        // else its time field is probably 0.0 which we might not want
+        if snap.states.len() > 0 {
+            self.current.time = snap.time;
+            self.current.copy_units(&snap);
         }
 
-        Ok(events)
+        Ok(snap)
     }
 
-    fn is_valid(self: &Self, id: EID, unit: model::UnitState) -> bool {
+    fn is_valid(self: &Self, unit: model::UnitState) -> bool {
         true
     }
 
     fn apply_effects(
-        snap: &model::Snapshot,
+        state: &mut model::UnitState,
         time: f64,
-        eff: Vec<(EID, Effect)>,
-    ) -> HashMap<EID, model::UnitState> {
-        let mut result = HashMap::new();
-        for (id, effect) in eff {
-            use self::Effect::*;
-            let mut state = snap.states[&id];
-            match effect {
-                Die => {
-                    state.update_pos(time);
-                    state.action = model::Action::Dead;
-                    state.vel = [0.0, 0.0];
-                    state.target_id = NULL_ID;
-                    state.target_loc = [0.0, 0.0];
-                },
-            }
-            result.insert(id, state);
+        effect: Effect,
+    ) {
+        use self::Effect::*;
+        match effect {
+            Die => {
+                state.update_pos(time);
+                state.action = model::Action::Dead;
+                state.vel = [0.0, 0.0];
+                state.target_id = NULL_ID;
+                state.target_loc = [0.0, 0.0];
+            },
         }
-        result
     }
 }
 
@@ -304,84 +291,34 @@ impl ClientPlan {
     }
 
     fn gen_planned(self: &Self) -> (Plan, model::Timeline) {
-        let planpaths = self.gen_planpaths();
-        let mut sim = self.current.clone();
-        let mut comm = self.current_commands.clone();
-        let mut side_effects = Vec::new();
-        let mut plans: HashMap<EID, _> = planpaths
-            .iter()
-            .map(|(&id, plan)| (id, plan.iter().peekable()))
-            .collect();
-        let mut timeline = model::Timeline::new();
+        let mut sims = Server {
+            current: self.current.clone(),
+        };
+        let paths = self.gen_planpaths();
+        // this is kinda dirty
+        // I'm thinking about making a History struct and a Simulation struct,
+        // but that doesn't really help here since we're dealing with commands
+        let mut simc = ClientPlan {
+            init: model::Snapshot::new(),
+            confirmed: model::Timeline::new(),
+            current_commands: self.current_commands.clone(),
+            current: self.current.clone(),
+            plans: paths.clone(),
+        };
 
         loop {
-            let mut next: Option<(f64, EID)> = None;
-            for (&id, plan) in &mut plans {
-                if let Some((time, _)) = comm[&id] {
-                    if next.is_none() || next.unwrap().0 > time {
-                        next = Some((time, id));
-                    }
-                } else if plan.peek().is_some() {
-                    next = Some((sim.time, id));
-                }
-            }
-            if next.is_none() || next.unwrap().0 > sim.time {
-                let time = sim.time;
-                let eff = Server::apply_effects(&sim, time, side_effects);
-                for (_, unit) in eff {
-                    sim.insert(unit);
-                    timeline.insert(unit);
-                }
-                side_effects = Vec::new();
-            }
-            if next.is_none() {
+            let next = simc.next_moves();
+            let result = sims.resolve(
+                next.iter()
+                    .map(|(_, &unit)| unit)
+            ).unwrap();
+            if result.states.len() == 0 {
                 break;
             }
-            let (time, id) = next.unwrap();
-            let mut state = sim.states[&id];
-            let new_comm = plans.get_mut(&id).and_then(Iterator::next);
-            let mut new_comm_time = time;
-            sim.time = time;
-            state.update_pos(time);
-            match comm[&id] {
-                None => (),
-                Some((_, Command::Nav(_))) => {
-                    state.vel = [0.0, 0.0];
-                },
-                Some((_, Command::Shoot(_))) => {
-                    side_effects.push((state.target_id, Effect::Die));
-                    state.action = model::Action::Mobile;
-                    state.target_id = NULL_ID;
-                    state.target_loc = [0.0, 0.0];
-                },
-                Some((_, Command::Wait(_))) => (),
-            }
-            match new_comm {
-                None => (),
-                Some(Command::Nav(pos)) => {
-                    let disp = vecmath::vec2_sub(*pos, state.pos);
-                    let max_speed = 1.0;
-                    let min_duration = vecmath::vec2_len(disp) / max_speed;
-                    let duration = min_duration.ceil();
-                    new_comm_time += duration;
-                    state.vel = vecmath::vec2_scale(disp, 1.0/duration);
-                },
-                Some(Command::Wait(duration)) => {
-                    new_comm_time += duration;
-                },
-                Some(Command::Shoot(target)) => {
-                    new_comm_time += 5.0;
-                    state.target_id = *target;
-                    state.action = model::Action::Shoot;
-                },
-            }
-            sim.insert(state);
-            timeline.insert(state);
-            comm.insert(id, new_comm.map(|comm| (new_comm_time, *comm)));
+            simc.accept_outcome(&next, &result);
         }
 
-        // (planpaths, timeline)
-        (self.gen_planpaths(), timeline)
+        (paths, simc.confirmed)
     }
 
     fn next_moves(self: &Self) -> HashMap<EID, model::UnitState> {
@@ -394,10 +331,12 @@ impl ClientPlan {
                 .get(&id)
                 .and_then(|x| x.get(0))
                 .cloned();
-            let time = comm.map_or(self.current.time, |c|c.0);
-            let comm = comm.map(|c|c.1);
-            state.command_end(comm, time);
-            state.command_start(new_comm);
+            if let Some((time, comm)) = comm {
+                state.command_end(comm, time);
+            }
+            if let Some(new_comm) = new_comm {
+                state.command_start(new_comm);
+            }
             if state != old_state {
                 moves.insert(id, state);
             }
@@ -425,8 +364,9 @@ impl ClientPlan {
                 } else {
                     None
                 };
-                let dur = {unit}.command_start(comm);
-                let comm = comm.map(|c| (unit.time + dur, c));
+                let comm = comm.map(|c|
+                    (unit.time + unit.command_duration(c), c)
+                );
                 self.current_commands.insert(id, comm);
             } else {
                 self.plans.insert(id, Vec::new());
@@ -536,16 +476,16 @@ impl Client {
     fn submit_server(self: &mut Self) {
         let lplan = self.client_a.next_moves();
         let rplan = self.client_b.next_moves();
-        let mut moves = HashMap::new();
+        let mut moves = Vec::new();
         if let Some(&next_move) = lplan.get(&0) {
-            moves.insert(0, next_move);
+            moves.push(next_move);
         }
         if let Some(&next_move) = rplan.get(&1) {
-            moves.insert(1, next_move);
+            moves.push(next_move);
         }
         let result = self
             .server
-            .resolve(moves)
+            .resolve(moves.into_iter())
             .expect("Server rejected plan");
         self.client_a.accept_outcome(&lplan, &result);
         self.client_b.accept_outcome(&rplan, &result);
