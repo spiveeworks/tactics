@@ -1,3 +1,52 @@
+[SPC-structure]
+partof = "REQ-server"
+text = '''
+There shall be 5 modules in the implementation:
+- model
+- server
+- client
+- server_app
+- client_app
+
+all of these should only depend on modules earlier in the list
+further, client_app should be independent of server_app and server
+similarly server_app should be independent of client_app and client
+
+model shall contain definitions of data types, along with basic operations such
+as insertion into a timeline or snapshot
+(maybe a History data type which combines a timeline with a snapshot? methods
+like generate end state, generate state at other times, insert whole snapshot)
+
+server shall contain a wrapper around the Snapshot data type, an enumeration of
+possible side effects of player actions, along with two functions:
+1. a function that looks at the current snapshot and generates a list of
+   effects, along with the time at which they will occur.
+2. a function that takes a set of planned changes, and figures out the actual
+   changes based on these, the current state, and the effects implied by 1.
+   this function shall return an error if invalid states are passed to it
+
+client shall contain a data type of the same name, along with a command
+enumeration, functions:
+1. generate planned changes based on current commands/state
+2. take actual changes and maintain history, state, commands
+3. generate future history based on current plans (will have a version that
+   consumes self, and a version that clones self and consumes the clone)
+
+server-app shall contain a data type that wraps around the server type, along
+with a map that tracks which client_id owns each unit.
+it shall have a function that wraps server.2, taking multiple sets of intended
+changes, splicing them based on who owns what, and returning a list of overall
+effects
+it shall also have a function that connects to a client_app opaquely through a
+tcp connection, repeatedly waiting for all clients to submit a plan, and then
+resolving and returning results to each client.
+
+client-app shall contain a client, along with data associated with user
+controls, and implement the trait defined at:
+https://github.com/spiveeworks/piston_app
+it shall provide keybindings/buttons to control a view of the simulation, pause
+play reset etc. modify plans, and submit plans to the server via tcp.
+'''
 
 [SPC-client]
 partof = "REQ-client"
