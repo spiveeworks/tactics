@@ -1,8 +1,9 @@
 [SPC-structure]
 partof = "REQ-interface"
 text = '''
-There shall be 5 modules in the implementation:
+There shall be 6 modules in the implementation:
 - model
+- path
 - server
 - client
 - server_app
@@ -11,11 +12,18 @@ There shall be 5 modules in the implementation:
 all of these should only depend on modules earlier in the list
 further, client_app should be independent of server_app and server
 similarly server_app should be independent of client_app and client
+path can in fact be independent of model.
 
 model shall contain definitions of data types, along with basic operations such
 as insertion into a timeline or snapshot
 (maybe a History data type which combines a timeline with a snapshot? methods
 like generate end state, generate state at other times, insert whole snapshot)
+
+path shall contain algorithms related to pathfinding.
+This means a function that generates a nav mesh from a set of triangles, using
+a function that tests whether a circle (potentially r=0) can pass between two
+points, and a function that uses a navmesh to generate a path between two
+endpoints.
 
 server shall contain a wrapper around the Snapshot data type, an enumeration of
 possible side effects of player actions, along with two functions:
