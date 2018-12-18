@@ -1,5 +1,5 @@
 [SPC-structure]
-partof = "REQ-server"
+partof = "REQ-interface"
 text = '''
 There shall be 5 modules in the implementation:
 - model
@@ -49,7 +49,7 @@ play reset etc. modify plans, and submit plans to the server via tcp.
 '''
 
 [SPC-client]
-partof = "REQ-client"
+partof = "REQ-interface"
 text = '''
 The client will be a 2d graphical interface written in Rust using the piston
 library.
@@ -149,7 +149,7 @@ At this point the simulation is done.
 [SPC-client-data]
 text = '''
 Entity state should simply be the fields associated with a unit as described in
-[[REQ-unit]].
+[[REQ-simulation]].
 The "dead" state should simply be weapon_use == ~0
 
 A data structure should be defined, called a "snapshot", which contains all of
