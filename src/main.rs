@@ -4,6 +4,7 @@ extern crate vecmath;
 
 
 mod model;
+mod path;
 mod server;
 mod client;
 mod client_app;
