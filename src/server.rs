@@ -1,6 +1,7 @@
 use prelude::*;
 
 use model;
+use path;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Effect {
@@ -9,11 +10,12 @@ enum Effect {
 
 pub struct Server {
     current: model::Snapshot,
+    map: path::Map,
 }
 
 impl Server {
-    pub fn new(current: model::Snapshot) -> Self {
-        Server { current }
+    pub fn new(current: model::Snapshot, map: path::Map) -> Self {
+        Server { current, map }
     }
 
     fn consequence(self: &Self) -> Vec<(f64, EID, Effect)> {
