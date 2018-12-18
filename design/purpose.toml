@@ -20,6 +20,60 @@ There could even be customization in place of FS's concretely designed content,
 simply to ensure that the player can make the game appropriately designed.
 '''
 
+[REQ-interface]
+partof = 'REQ-purpose'
+text = '''
+Like most tactics/planning based games, interacting with the program will
+primarily consist of constructing a connect-the-dots path on screen, with
+commands interspersed, with frequent submission of the plan to see the result.
+
+Like Frozen Synapse, and even Civilisation, plans shall go further into the
+future than immediate actions, as this is a necessity when multitasking.
+
+In order to facilitate efficient play, the program should accept hotkeys for
+most actions, and as such on-screen UI can be minimal during early versions.
+In the long term UI should exist for all available actions, as this makes most
+game mechanics self-teaching.
+
+Plans will consist of a sequence of navigation nodes, each of which contain a
+sequence of action nodes.
+Navigation nodes can be placed on either side of an impassable obstacle/wall,
+corresponding to a plan to move in the shortest passable path from one node to
+the other.
+
+To ease mental processing, plans will be displayed on-screen in the form of a
+series of line segments from the current position to the last nav node.
+Some of the segments will have a filled circle at one end, to indicate that
+they are not an intermediate step, but an explicit nav node.
+
+The user shall select nodes on-screen to select them, which causes any action
+nodes to be displayed on the side of the screen.
+
+Additional hints may exist on screen to show the targets of various actions,
+labelled "1" "2a" "2b" etc. to indicate which command in the action list it
+corresponds to, with letters optionally indicating which field of the command
+is being represented.
+
+These hints should be connected to the current nav node with some kind of line, 
+and should be hidden when something else is selected.
+This is so that it is very clear the angle and location of each target based
+action.
+
+Commands should of course be added and deleted through the keyboard and through
+the screen, with various quality of life features such as:
+- inserting/deleting a nav node in the middle of a path
+- inserting/deleting/rearranging actions within a nav node
+- changing arguments of an action
+- testing line-of-sight of a point from current nav node
+- potentially other visualisation features such as shadows or path to mouse
+
+Controls should also exist to start and stop local simulation, as well as
+submitting the local simulation to a server (which may or may not be local)
+A timeline visualisation should exist at the bottom of the screen much like in
+animation software and somewhat like video playback, which shows the currently
+submitted, and currently displayed points in time, as well as the point in time
+at which the last scheduled command will finish.
+'''
 
 [REQ-server]
 partof = 'REQ-purpose'
