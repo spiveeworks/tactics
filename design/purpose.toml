@@ -20,10 +20,64 @@ There could even be customization in place of FS's concretely designed content,
 simply to ensure that the player can make the game appropriately designed.
 '''
 
-
-[REQ-server]
+[REQ-interface]
 partof = 'REQ-purpose'
 text = '''
+Like most tactics/planning based games, interacting with the program will
+primarily consist of constructing a connect-the-dots path on screen, with
+commands interspersed, with frequent submission of the plan to see the result.
+
+Like Frozen Synapse, and even Civilisation, plans shall go further into the
+future than immediate actions, as this is a necessity when multitasking.
+
+In order to facilitate efficient play, the program should accept hotkeys for
+most actions, and as such on-screen UI can be minimal during early versions.
+In the long term UI should exist for all available actions, as this makes most
+game mechanics self-teaching.
+
+Plans will consist of a sequence of navigation nodes, each of which contain a
+sequence of action nodes.
+Navigation nodes can be placed on either side of an impassable obstacle/wall,
+corresponding to a plan to move in the shortest passable path from one node to
+the other.
+
+To ease mental processing, plans will be displayed on-screen in the form of a
+series of line segments from the current position to the last nav node.
+Some of the segments will have a filled circle at one end, to indicate that
+they are not an intermediate step, but an explicit nav node.
+
+The user shall select nodes on-screen to select them, which causes any action
+nodes to be displayed on the side of the screen.
+
+Additional hints may exist on screen to show the targets of various actions,
+labelled "1" "2a" "2b" etc. to indicate which command in the action list it
+corresponds to, with letters optionally indicating which field of the command
+is being represented.
+
+These hints should be connected to the current nav node with some kind of line, 
+and should be hidden when something else is selected.
+This is so that it is very clear the angle and location of each target based
+action.
+
+Commands should of course be added and deleted through the keyboard and through
+the screen, with various quality of life features such as:
+- inserting/deleting a nav node in the middle of a path
+- inserting/deleting/rearranging actions within a nav node
+- changing arguments of an action
+- testing line-of-sight of a point from current nav node
+- potentially other visualisation features such as shadows or path to mouse
+
+Controls should also exist to start and stop local simulation, as well as
+submitting the local simulation to a server (which may or may not be local)
+A timeline visualisation should exist at the bottom of the screen much like in
+animation software and somewhat like video playback, which shows the currently
+submitted, and currently displayed points in time, as well as the point in time
+at which the last scheduled command will finish.
+'''
+
+[REQ-server-old]
+text = '''
+[these notes are old and might not be strictly requirements]
 The game shall consist of a simulation, i.e. a finite set of entities changing
 their own state and the state of other entities within some rule set.
 
@@ -57,23 +111,17 @@ In the future an analogous distinction server-side might save on network usage,
 but this won't be considered for now.
 '''
 
-[REQ-client]
+[REQ-server]
 partof = 'REQ-purpose'
 text = '''
-In order to help the player understand the game simulation, and generate their
-own plans, a client shall exist which renders known past information as well as
-planned future information, and aids in modifying that plan.
-
-As described in [[REQ-server]], the game simulation exists as a set of
-entities, each with their own state sequences.
-These state sequences are easy to make, but can easily be invalid.
-As a result the user should not have to directly manipulate these state
-sequences, but should manipulate some visual sequence of commands, which will
-usually generate valid state sequences.
+It should also be possible to host servers, which can be connected to via TCP.
+These servers coordinate games across multiple players, and must verify the
+legality of each players moves, while also reporting the results of their moves
+to everyone playing.
 '''
 
-[REQ-unit]
-partof = 'REQ-purpose'
+[REQ-simulation]
+partof = 'REQ-interface'
 text = '''
 One of the entities in the simulation described in [[REQ-server]], perhaps the
 only entity, will be the unit.
