@@ -100,7 +100,7 @@ pub type Plan = HashMap<EID, Vec<Command>>;
 
 pub struct Client {
     pub map: path::Map,
-    pub mesh: path::NavMesh,
+    //pub mesh: path::NavMesh,
 
     pub init: model::Snapshot,
     pub confirmed: model::Timeline,
@@ -112,14 +112,14 @@ pub struct Client {
 
 impl Client {
     pub fn new(init: model::Snapshot, map: path::Map) -> Self {
-        let mesh = path::NavMesh::generate(&map, 1.0);
+        //let mesh = path::NavMesh::generate(&map, 1.0);
         let confirmed = model::Timeline::new();
         let current = init.clone();
         let current_commands = empty_map(&init.states);
         let plans = empty_map(&init.states);
         Client {
             map,
-            mesh,
+            //mesh,
 
             init,
             confirmed,
@@ -141,8 +141,8 @@ impl Client {
         // I'm thinking about making a History struct and a Simulation struct,
         // but that doesn't really help here since we're dealing with commands
         let mut simc = Client {
-            map: self.map.clone(),
-            mesh: self.mesh.clone(),  // hmm...
+            map: self.map.clone(),  // hmm...
+            //mesh: self.mesh.clone(),
 
             init: model::Snapshot::new(),
             confirmed: model::Timeline::new(),
