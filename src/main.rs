@@ -17,7 +17,7 @@ pub mod prelude {
     pub const NULL_ID: EID = EID::max_value();
 
     pub type Vec2 = ::vecmath::Vector2<f64>;
-    pub use vecmath::{vec2_scale, vec2_add};
+    pub use vecmath::{vec2_scale, vec2_add, vec2_sub};
 
     // should use NotNaN crate
     #[derive(Clone, Copy)]
