@@ -180,7 +180,18 @@ impl Client {
                 state.command_end(comm, time);
             }
             if let Some(new_comm) = new_comm {
-                state.command_start(new_comm);
+                let mut doit = true;
+                if let Command::Shoot(target) = new_comm {
+                    let target_pos = self.current.states[&target].pos;
+                    doit = path::unit_can_see_pos(
+                        &self.map,
+                        state.pos,
+                        target_pos,
+                    );
+                }
+                if doit {
+                    state.command_start(new_comm);
+                }
             }
             if state != old_state {
                 moves.insert(id, state);

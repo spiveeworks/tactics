@@ -10,6 +10,13 @@ struct Line {
     dir: Vec2,
 }
 
+pub fn unit_is_in_wall(map: &Map, unit: Vec2) -> bool {
+    false
+}
+
+pub fn unit_can_see_pos(map: &Map, unit: Vec2, pos: Vec2) -> bool {
+    true
+}
 
 #[derive(Clone)]
 pub struct NavMesh {
