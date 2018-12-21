@@ -128,10 +128,14 @@ impl ClientApp {
     }
 
     fn regen(self: &mut Self) {
+        let time = self.display.time;
+        self.regen_with_time(time);
+    }
+
+    fn regen_with_time(self: &mut Self, time: f64) {
         let (plan, timeline) = self.plan().gen_planned();
         self.planpaths = plan;
         self.planned = timeline;
-        let time = self.display.time;
         if time < self.plan().current.time {
             self.display = self.plan().init.clone();
             if self.display_a {
@@ -161,7 +165,7 @@ impl ClientApp {
             .expect("Server rejected plan");
         self.client_a.accept_outcome(&lplan, &result);
         self.client_b.accept_outcome(&rplan, &result);
-        self.regen();
+        self.regen_with_time(result.time);
     }
 
     pub fn new_demo() -> Self {
@@ -351,13 +355,13 @@ impl piston_app::App for ClientApp {
             } else if args.button == CONTROLS.restart {
                 let dt = self.display.time;
                 let ct = self.plan().current.time;
+                let new_dt;
                 if dt > ct || dt == self.plan().init.time {
-                    self.display.time = self.plan().current.time;
+                    new_dt = self.plan().current.time;
                 } else {
-                    self.display.time = self.plan().init.time;
+                    new_dt = self.plan().init.time;
                 }
-                // since regen() is defined to preserve current display.time
-                self.regen();
+                self.regen_with_time(new_dt);
             } else if args.button == CONTROLS.switch_team {
                 self.display_a = !self.display_a;
                 self.regen();
