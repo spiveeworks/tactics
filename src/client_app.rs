@@ -351,11 +351,13 @@ impl piston_app::App for ClientApp {
             } else if args.button == CONTROLS.restart {
                 let dt = self.display.time;
                 let ct = self.plan().current.time;
-                if dt > ct || dt == 0.0 {
-                    self.display = self.plan().current.clone();
+                if dt > ct || dt == self.plan().init.time {
+                    self.display.time = self.plan().current.time;
                 } else {
-                    self.display = self.plan().init.clone();
+                    self.display.time = self.plan().init.time;
                 }
+                // since regen() is defined to preserve current display.time
+                self.regen();
             } else if args.button == CONTROLS.switch_team {
                 self.display_a = !self.display_a;
                 self.regen();

@@ -21,8 +21,7 @@ impl model::UnitState {
         self.time = new_time;
     }
 
-    fn command_end(self: &mut Self, comm: Command, time: f64) {
-        self.update_pos(time);
+    fn command_end(self: &mut Self, comm: Command) {
         match comm {
             Command::Nav(_) => {
                 self.vel = [0.0, 0.0];
@@ -115,7 +114,6 @@ impl Client {
         //let mesh = path::NavMesh::generate(&map, 1.0);
         let confirmed = model::Timeline::new();
         let mut current = init.clone();
-        current.time += 0.1;
         let current_commands = empty_map(&init.states);
         let plans = empty_map(&init.states);
         Client {
@@ -152,6 +150,10 @@ impl Client {
             plans: paths.clone(),
         };
 
+        // TODO figure out why we get stuck in this loop when trying to walk
+        // directly into a wall
+        // hint: probably related to client saying "that'd be invalid" and
+        // submitting wait(0.1) over and over
         loop {
             let next = simc.next_moves();
             let result = sims.resolve(
@@ -177,24 +179,27 @@ impl Client {
                 .get(&id)
                 .and_then(|x| x.get(0))
                 .cloned();
-            if let Some((time, comm)) = comm {
-                state.command_end(comm, time);
+            if comm.is_some() || new_comm.is_some() {
+                let mut time = self.current.time + 0.1;
+                if let Some((ctime, _)) = comm {
+                    if ctime > time {
+                        time = ctime;
+                    }
+                }
+                state.update_pos(time);
+            }
+            if let Some((_, comm)) = comm {
+                state.command_end(comm);
             }
             if let Some(new_comm) = new_comm {
-                if state.time < self.current.time {
-                    state.update_pos(self.current.time);
-                }
-                let mut doit = true;
-                if let Command::Shoot(target) = new_comm {
-                    let target_pos = self.current.states[&target].pos;
-                    doit = path::unit_can_see_pos(
-                        &self.map,
-                        state.pos,
-                        target_pos,
-                    );
-                }
-                if doit {
-                    state.command_start(new_comm);
+                let mut comm_state = state;
+                comm_state.command_start(new_comm);
+                if !Server::collision_imminent(
+                    &self.map,
+                    &self.current,
+                    comm_state,
+                ) {
+                    state = comm_state;
                 }
             }
             if state != old_state {
@@ -216,8 +221,7 @@ impl Client {
         expected: &HashMap<EID, model::UnitState>,
         outcome: &model::Snapshot,
     ) {
-        // TODO figure out a consistent way of dealing with the 0.1 buffer
-        self.current.time = outcome.time + 0.1;
+        self.current.time = outcome.time;
         self.confirmed.snapshots.insert(Time(outcome.time), outcome.clone());
         for (&id, &unit) in &outcome.states {
             self.current.states.insert(id, unit);
