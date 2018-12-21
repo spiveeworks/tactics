@@ -114,7 +114,8 @@ impl Client {
     pub fn new(init: model::Snapshot, map: path::Map) -> Self {
         //let mesh = path::NavMesh::generate(&map, 1.0);
         let confirmed = model::Timeline::new();
-        let current = init.clone();
+        let mut current = init.clone();
+        current.time += 0.1;
         let current_commands = empty_map(&init.states);
         let plans = empty_map(&init.states);
         Client {
@@ -180,6 +181,9 @@ impl Client {
                 state.command_end(comm, time);
             }
             if let Some(new_comm) = new_comm {
+                if state.time < self.current.time {
+                    state.update_pos(self.current.time);
+                }
                 let mut doit = true;
                 if let Command::Shoot(target) = new_comm {
                     let target_pos = self.current.states[&target].pos;
@@ -195,6 +199,13 @@ impl Client {
             }
             if state != old_state {
                 moves.insert(id, state);
+                if state.time == old_state.time {
+                    println!(
+                        "[possible bug] instantaneous action ({:?}, {:?})",
+                        comm,
+                        new_comm
+                    );
+                }
             }
         }
         moves
