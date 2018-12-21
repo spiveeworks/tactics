@@ -2,6 +2,7 @@
 use piston_window as window;
 
 use std::collections::HashMap;
+use std::net;
 
 use prelude::*;
 
@@ -212,7 +213,7 @@ impl ClientApp {
         self.regen_with_time(result.time);
     }
 
-    pub fn new_demo() -> Self {
+    pub fn new_demo<I: net::ToSocketAddrs>(ip: I) -> Self {
         let mut init = model::Snapshot {
             time: 0.0,
             states: HashMap::new(),
@@ -234,8 +235,8 @@ impl ClientApp {
         units[2].pos[1] = 5.0;
         units[3].pos[1] = 55.0;
         for i in 0..4 {
-            units[i].id = i;
-            init.states.insert(i, units[i]);
+            units[i].id = i as EID;
+            init.states.insert(i as EID, units[i]);
         }
 
         let mut map = path::Map::new();

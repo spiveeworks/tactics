@@ -7,12 +7,14 @@ mod model;
 mod path;
 mod server;
 mod client;
+mod server_app;
 mod client_app;
 
 pub mod prelude {
     use std::collections::HashMap;
 
-    pub type EID = usize;
+    pub type EID = u32;
+    pub type TID = u32;
 
     pub const NULL_ID: EID = EID::max_value();
 
@@ -51,9 +53,25 @@ pub mod prelude {
     }
 }
 
+fn readln() -> String {
+    let mut buffer = String::new();
+    let stdin = ::std::io::stdin();
 
+    stdin.read_line(&mut buffer).expect("Stdin failed");
+    buffer
+}
 
 fn main() {
-    let app = client_app::ClientApp::new_demo();
-    piston_app::run_until_escape(app);
+    let mut args = std::env::args();
+    let fst = args.next();
+    if fst == Some("-s".to_string()) {
+        let ip = args.next().expect("no ip specified").to_string();
+        let app = server_app::ServerApp::new(&ip);
+        app.run();
+    } else {
+        println!("Enter ip to connect to: ");
+        let ip = readln();
+        let app = client_app::ClientApp::new_demo(&ip);
+        piston_app::run_until_escape(app);
+    }
 }
