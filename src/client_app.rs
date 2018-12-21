@@ -211,9 +211,9 @@ impl ClientApp {
             time: 0.0,
             states: HashMap::new(),
         };
-        let killr = model::UnitState {
+        let unit = model::UnitState {
             id: 0,
-            pos: [20.0, 30.0],
+            pos: [30.0, 30.0],
             vel: [0.0, 0.0],
             time: 0.0,
 
@@ -222,38 +222,50 @@ impl ClientApp {
             target_id: NULL_ID,
             target_loc: [0.0, 0.0],
         };
-        let killd = model::UnitState {
-            id: 1,
-            pos: [40.0, 40.0],
-            vel: [0.0, 0.0],
-            time: 0.0,
-
-            weapon: model::Weapon::Gun,
-            action: model::Action::Mobile,
-            target_id: NULL_ID,
-            target_loc: [0.0, 0.0],
-        };
-        init.states.insert(0, killr);
-        init.states.insert(1, killd);
+        let mut units = [unit;4];
+        units[0].pos[0] = 5.0;
+        units[1].pos[0] = 55.0;
+        units[2].pos[1] = 5.0;
+        units[3].pos[1] = 55.0;
+        for i in 0..4 {
+            units[i].id = i;
+            init.states.insert(i, units[i]);
+        }
 
         let mut map = path::Map::new();
-        map.push([[30.0, 40.0], [30.0, 45.0], [45.0, 45.0]]);
 
-        let mut client = ClientApp::new(init, map);
-        {
-            let plan = [
-                (0, Command::Shoot(1)),
-                (1, Command::Nav([40.0, 20.0])),
-            ];
-            for &(id, com) in &plan {
-                client
-                    .plan_mut()
-                    .plans
-                    .get_mut(&id)
-                    .unwrap()
-                    .push(com);
+        let polys = [
+            // centre block
+            vec![[29.0,29.0],[29.0,30.0],[30.0,30.0],[30.0,29.0]],
+            // centre walls
+            vec![[20.0,20.0],[27.0,20.0],[27.0,21.0],
+                 [21.0,21.0],[21.0,27.0],[20.0,27.0]],
+            // outer diags
+            vec![[2.0, 2.0],[2.0,3.0],[15.0,16.0],
+                 [16.0,16.0],[16.0,15.0],[3.0,2.0]],
+            // inner diags
+            vec![[10.0,20.0],[10.0,20.5],[17.5,28.0],
+                 [18.0,28.0],[18.0,27.5],[10.5,20.0]],
+            vec![[20.0,10.0],[20.0,10.5],[27.5,18.0],
+                 [28.0,18.0],[28.0,17.5],[20.5,10.0]],
+        ];
+        let fns = [[0.0,1.0],[60.0,-1.0]];
+        for poly in polys.iter() {
+            let len = poly.len();
+            for fx in fns.iter() {
+                for fy in fns.iter() {
+                    for i in 1..len {
+                        let j = (i+1)%len;
+                        let f = |p: [f64;2]|
+                            [fx[0]+fx[1]*p[0],fy[0]+fy[1]*p[1]];
+                        map.push([f(poly[0]), f(poly[i]), f(poly[j])]);
+                    }
+                }
             }
         }
+
+        let mut client = ClientApp::new(init, map);
+
         client.regen();
         client
     }
