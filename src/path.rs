@@ -1,3 +1,6 @@
+use vecmath;
+use piston_window;
+
 use prelude::*;
 
 pub type Trig = [Vec2; 3];

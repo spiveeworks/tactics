@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use vecmath;
 
 use prelude::*;
 
