@@ -43,16 +43,17 @@ impl Server {
     fn consequence_boundaries(self: &Self, next: f64)
         -> Vec<(f64, EID, Effect)>
     {
-        let mut state = self.current.clone();
         let mut result = Vec::new();
         let future = model::Timeline::new(); // the future is unknown :)
-        while result.len() == 0 && state.time < next + 0.1 {
-            let prev_time = state.time;
-            state.update(&future, prev_time + 0.1);
+        let mut time = self.current.time;
+        while result.len() == 0 && time < next + 0.1 {
+            let mut state = self.current.clone();
+            time += 0.1;
+            state.update(&future, time);
             for (&id, &unit) in &state.states {
                 let eff = Self::unit_collision(&self.map, &state, unit);
-                if let Some((time, effect)) = eff {
-                    result.push((time, id, effect));
+                if let Some((eff_time, effect)) = eff {
+                    result.push((eff_time, id, effect));
                 }
             }
         }
