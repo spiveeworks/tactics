@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use prelude::*;
 
 use model;
+use path;
 use server::*;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -98,6 +99,9 @@ impl model::UnitState {
 pub type Plan = HashMap<EID, Vec<Command>>;
 
 pub struct Client {
+    pub map: path::Map,
+    //pub mesh: path::NavMesh,
+
     pub init: model::Snapshot,
     pub confirmed: model::Timeline,
     pub current: model::Snapshot,
@@ -107,12 +111,23 @@ pub struct Client {
 
 
 impl Client {
-    pub fn new(init: model::Snapshot) -> Self {
+    pub fn new(init: model::Snapshot, map: path::Map) -> Self {
+        //let mesh = path::NavMesh::generate(&map, 1.0);
         let confirmed = model::Timeline::new();
-        let current = init.clone();
+        let mut current = init.clone();
+        current.time += 0.1;
         let current_commands = empty_map(&init.states);
         let plans = empty_map(&init.states);
-        Client { init, confirmed, current, current_commands, plans }
+        Client {
+            map,
+            //mesh,
+
+            init,
+            confirmed,
+            current,
+            current_commands,
+            plans,
+        }
     }
 
     fn gen_planpaths(self: &Self) -> Plan {
@@ -120,13 +135,16 @@ impl Client {
     }
 
     pub fn gen_planned(self: &Self) -> (Plan, model::Timeline) {
-        let mut sims = Server::new(self.current.clone());
+        let mut sims = Server::new(self.current.clone(), self.map.clone());
 
         let paths = self.gen_planpaths();
         // this is kinda dirty
         // I'm thinking about making a History struct and a Simulation struct,
         // but that doesn't really help here since we're dealing with commands
         let mut simc = Client {
+            map: self.map.clone(),  // hmm...
+            //mesh: self.mesh.clone(),
+
             init: model::Snapshot::new(),
             confirmed: model::Timeline::new(),
             current_commands: self.current_commands.clone(),
@@ -163,10 +181,31 @@ impl Client {
                 state.command_end(comm, time);
             }
             if let Some(new_comm) = new_comm {
-                state.command_start(new_comm);
+                if state.time < self.current.time {
+                    state.update_pos(self.current.time);
+                }
+                let mut doit = true;
+                if let Command::Shoot(target) = new_comm {
+                    let target_pos = self.current.states[&target].pos;
+                    doit = path::unit_can_see_pos(
+                        &self.map,
+                        state.pos,
+                        target_pos,
+                    );
+                }
+                if doit {
+                    state.command_start(new_comm);
+                }
             }
             if state != old_state {
                 moves.insert(id, state);
+                if state.time == old_state.time {
+                    println!(
+                        "[possible bug] instantaneous action ({:?}, {:?})",
+                        comm,
+                        new_comm
+                    );
+                }
             }
         }
         moves

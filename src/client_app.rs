@@ -6,10 +6,12 @@ use std::collections::HashMap;
 use prelude::*;
 
 use model;
+use path;
 use client::*;
 use server::*;
 
 pub struct ClientApp {
+    map: path::Map,
     client_a: Client,
     client_b: Client,
     server: Server,
@@ -48,13 +50,14 @@ static CONTROLS: Controls = Controls {
 };
 
 impl ClientApp {
-    fn new(init: model::Snapshot) -> Self {
-        let client_a = Client::new(init.clone());
-        let client_b = Client::new(init);
-        let server = Server::new(client_a.current.clone());
+    fn new(init: model::Snapshot, map: path::Map) -> Self {
+        let client_a = Client::new(init.clone(), map.clone());
+        let client_b = Client::new(init, map.clone());
+        let server = Server::new(client_a.current.clone(), map.clone());
 
         let display = client_a.init.clone();
         ClientApp {
+            map,
             client_a,
             client_b,
             server,
@@ -191,7 +194,10 @@ impl ClientApp {
         init.states.insert(0, killr);
         init.states.insert(1, killd);
 
-        let mut client = ClientApp::new(init);
+        let mut map = path::Map::new();
+        map.push([[30.0, 40.0], [30.0, 45.0], [45.0, 45.0]]);
+
+        let mut client = ClientApp::new(init, map);
         {
             let plan = [
                 (0, Command::Shoot(1)),
@@ -283,6 +289,21 @@ impl piston_app::App for ClientApp {
                 window::ellipse(path_color, rect, trans, graphics);
             }
         }
+
+        let mut tri_list = Vec::with_capacity(client.map.len() * 3);
+        for &trig in &self.map {
+            // rust unroll plz <3
+            for p in 0..3 {
+                let x = trig[p][0];
+                let y = trig[p][1];
+                // surely im not meant to be doing this
+                let tx = window::triangulation::tx(trans, x, y);
+                let ty = window::triangulation::ty(trans, x, y);
+                tri_list.push([tx, ty]);
+            }
+        }
+        use self::window::Graphics;
+        graphics.tri_list(&Default::default(), &path_color, |f| f(&*tri_list));
     }
 
     fn on_update(

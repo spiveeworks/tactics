@@ -204,6 +204,18 @@ Handling this can only have a very small number of outcomes, either
 - both sides act simultaneously
 - one side's past actions have an effect that both will be informed of 
 
+Currently consequences come in two forms, the first is when one entity changes
+the state of another entity by holding its _own_ state for some positive amount
+of time.
+As an example, by shooting someone for a while, they become dead.
+The second is when an entity's action is interfered with by the map itself.
+Two examples are walking into a wall and attempting to shoot someone through a
+wall.
+The former is applied _after_ autonomous actions, simultaneously. This allows
+for kill trades, or spawning projectiles at the same time as dying.
+The latter is applied _before_ autonomous actions, so that the player can
+anticipate the interruption and do something else instead.
+
 Implementing this means having another snapshot and timeline like all clients
 have, (in clients this could be thought of as an internal server therefore)
 the algorithm is then simply to find the soonest event, bundle together all
