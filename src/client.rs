@@ -150,6 +150,10 @@ impl Client {
             plans: paths.clone(),
         };
 
+        // TODO figure out why we get stuck in this loop when trying to walk
+        // directly into a wall
+        // hint: probably related to client saying "that'd be invalid" and
+        // submitting wait(0.1) over and over
         loop {
             let next = simc.next_moves();
             let result = sims.resolve(
