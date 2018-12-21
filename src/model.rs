@@ -90,7 +90,8 @@ impl Snapshot {
     ) {
         let t1 = Time(self.time);
         let t2 = Time(new_time);
-        for (_, units) in timeline.snapshots.range(t1..t2) {
+        let range = ::std::ops::RangeInclusive::new(t1, t2);
+        for (_, units) in timeline.snapshots.range(range) {
             self.copy_units(units);
         }
         self.time = new_time;
