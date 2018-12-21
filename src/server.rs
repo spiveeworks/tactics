@@ -184,6 +184,7 @@ impl Server {
                         StopShooting => {
                             state.target_id = NULL_ID;
                             state.target_loc = [0.0, 0.0];
+                            state.action = model::Action::Mobile;
                         },
                         Die => unreachable!(),
                     }

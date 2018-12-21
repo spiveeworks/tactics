@@ -16,6 +16,7 @@ pub struct ClientApp {
     client_b: Client,
     server: Server,
     display: model::Snapshot,
+    updates: HashMap<EID, Update>,
     planpaths: Plan,
     planned: model::Timeline,
 
@@ -23,6 +24,21 @@ pub struct ClientApp {
     mouse: Vec2,
     playing: bool,
     display_a: bool,
+}
+
+#[derive(Default, Clone, Copy)]
+struct Update {
+    vel: bool,
+    target: bool,
+}
+
+impl Update {
+    fn compare(one: model::UnitState, other: model::UnitState) -> Self {
+        Update {
+            vel: one.vel != other.vel,
+            target: one.target_id != other.target_id,
+        }
+    }
 }
 
 struct Controls {
@@ -62,6 +78,7 @@ impl ClientApp {
             client_b,
             server,
             display,
+            updates: HashMap::new(),
             planned: model::Timeline::new(),
             planpaths: HashMap::new(),
 
@@ -128,21 +145,46 @@ impl ClientApp {
     }
 
     fn regen(self: &mut Self) {
+        let time = self.display.time;
+        self.regen_with_time(time);
+    }
+
+    fn regen_with_time(self: &mut Self, time: f64) {
         let (plan, timeline) = self.plan().gen_planned();
         self.planpaths = plan;
         self.planned = timeline;
-        let time = self.display.time;
-        if time < self.plan().current.time {
-            self.display = self.plan().init.clone();
-            if self.display_a {
-                self.display.update(&self.client_a.confirmed, time);
-            } else {
-                self.display.update(&self.client_b.confirmed, time);
-            }
+        self.display = self.get_display(time);
+        let prevtime = time - 0.1;
+        if prevtime >= self.plan().init.time {
+            let prevdisplay = self.get_display(prevtime);
+            self.regen_updates(&prevdisplay);
         } else {
-            self.display = self.plan().current.clone();
-            self.display.update(&self.planned, time);
+            self.updates = HashMap::new();
         }
+
+    }
+
+    fn regen_updates(self: &mut Self, old_states: &model::Snapshot) {
+        self.updates = self
+            .display
+            .states
+            .iter()
+            .map(|(&id, &unit)|
+                 (id, Update::compare(old_states.states[&id], unit))
+             )
+            .collect();
+    }
+
+    fn get_display(self: &Self, time: f64) -> model::Snapshot {
+        let mut display;
+        if time < self.plan().current.time {
+            display = self.plan().init.clone();
+            display.update(&self.plan().confirmed, time);
+        } else {
+            display = self.plan().current.clone();
+            display.update(&self.planned, time);
+        }
+        display
     }
 
     fn submit_server(self: &mut Self) {
@@ -161,7 +203,7 @@ impl ClientApp {
             .expect("Server rejected plan");
         self.client_a.accept_outcome(&lplan, &result);
         self.client_b.accept_outcome(&rplan, &result);
-        self.regen();
+        self.regen_with_time(result.time);
     }
 
     pub fn new_demo() -> Self {
@@ -219,6 +261,47 @@ impl ClientApp {
 
 static SCALE: f64 = 10.0;
 
+fn dotted_line(
+    col: [f32; 4],
+    radius: f64,
+    //on_len: f64,
+    //off_len: f64,
+    //offset: f64,
+    line: [f64; 4],
+    trans: window::math::Matrix2d,
+    graphics: &mut window::G2d,
+) {
+    let mut pos = [line[0], line[1]];
+    let dest = [line[2], line[3]];
+    let mut alternate = true;
+    let dir = vecmath::vec2_normalized(vec2_sub(dest, pos));
+    let len = 1.0;
+    while pos != dest {
+        let diff = vec2_sub(dest, pos);
+        let next_pos;
+        if vecmath::vec2_square_len(diff) < len * len {
+            next_pos = dest;
+        } else {
+            next_pos = vec2_add(pos, vec2_scale(dir, len));
+        }
+        if alternate {
+            let segment = [pos[0], pos[1], next_pos[0], next_pos[1]];
+            window::line(col, radius, segment, trans, graphics);
+        }
+        alternate = !alternate;
+        pos = next_pos;
+    }
+}
+
+fn sys_time() -> f64 {
+    use std::time::SystemTime;
+    let now = SystemTime::now();
+    let now = now.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+    let now_nano = now.subsec_nanos() as f64 / 1_000_000_000.0;
+    let now_sec = now.as_secs() as f64;
+    now_sec + now_nano
+}
+
 impl piston_app::App for ClientApp {
     fn on_draw(
         self: &mut Self,
@@ -227,16 +310,55 @@ impl piston_app::App for ClientApp {
         _args: window::RenderArgs,
     ) {
         use piston_window::Transformed;
+        use self::window::Graphics;
         window::clear([0.0, 0.0, 0.0, 1.0], graphics);
+
+        let flash_speed = 1.0;
+        let flash_new = self.playing ||
+            sys_time() % (2.0*flash_speed) < flash_speed;
 
         let unit_color = [1.0, 1.0, 1.0, 1.0];
         let scale = SCALE;
         let trans = centre.transform.scale(scale, scale);
-        for (_, unit) in &self.display.states {
-            let x = unit.pos[0] - 0.5;
-            let y = unit.pos[1] - 0.5;
-            let rect = [x, y, 1.0, 1.0];
-            window::ellipse(unit_color, rect, trans, graphics);
+
+        let unit_shape = [-0.5, -0.5, 1.0, 1.0];
+
+        let vel_pos = 0.7;
+        let vel_size = 0.3;
+        let vel_shape = [
+            [vel_pos, vel_size],
+            [vel_pos + vel_size, 0.0],
+            [vel_pos, -vel_size]
+        ];
+        for (&id, &unit) in &self.display.states {
+            let unit_trans = trans.trans(unit.pos[0], unit.pos[1]);
+
+            let updates = self.updates.get(&id).cloned().unwrap_or_default();
+            if flash_new || !(unit.vel == [0.0;2] && updates.vel) {
+                window::ellipse(unit_color, unit_shape, unit_trans, graphics);
+            }
+
+            if unit.target_id != NULL_ID && (flash_new || !updates.target) {
+                let pos = self.display.states[&unit.target_id].pos;
+                let line = [unit.pos[0], unit.pos[1], pos[0], pos[1]];
+                dotted_line(unit_color, 1.0/scale, line, trans, graphics);
+            }
+
+            if unit.vel != [0.0; 2] && (flash_new || !updates.vel) {
+                let vel_trans = unit_trans.orient(unit.vel[0], unit.vel[1]);
+                let mut tri = [[0.0;2];3];
+                for i in 0..3 {
+                    let x = vel_shape[i][0];
+                    let y = vel_shape[i][1];
+                    tri[i][0] = window::triangulation::tx(vel_trans, x, y);
+                    tri[i][1] = window::triangulation::ty(vel_trans, x, y);
+                }
+                graphics.tri_list(
+                    &Default::default(),
+                    &unit_color,
+                    |f| f(&tri),
+                );
+            }
         }
 
         let path_color = [1.0, 1.0, 1.0, 1.0];
@@ -302,7 +424,6 @@ impl piston_app::App for ClientApp {
                 tri_list.push([tx, ty]);
             }
         }
-        use self::window::Graphics;
         graphics.tri_list(&Default::default(), &path_color, |f| f(&*tri_list));
     }
 
@@ -315,21 +436,25 @@ impl piston_app::App for ClientApp {
         }
         let dtime = 0.1;
         let new_time = self.display.time + dtime;
-        let tl;
-        // redundancy because borrow checker
-        if new_time <= self.plan().current.time {
-            tl = if self.display_a {
-                &self.client_a.confirmed
+        let old_states = self.display.clone();
+        {
+            let tl;
+            // redundancy because borrow checker
+            if new_time <= self.plan().current.time {
+                tl = if self.display_a {
+                    &self.client_a.confirmed
+                } else {
+                    &self.client_b.confirmed
+                }
             } else {
-                &self.client_b.confirmed
+                if self.display.time <= self.plan().current.time {
+                    self.display = self.plan().current.clone();
+                }
+                tl = &self.planned;
             }
-        } else {
-            if self.display.time <= self.plan().current.time {
-                self.display = self.plan().current.clone();
-            }
-            tl = &self.planned;
+            self.display.update(tl, new_time);
         }
-        self.display.update(tl, new_time);
+        self.regen_updates(&old_states);
     }
     fn on_input(
         self: &mut Self,
@@ -351,13 +476,13 @@ impl piston_app::App for ClientApp {
             } else if args.button == CONTROLS.restart {
                 let dt = self.display.time;
                 let ct = self.plan().current.time;
+                let new_dt;
                 if dt > ct || dt == self.plan().init.time {
-                    self.display.time = self.plan().current.time;
+                    new_dt = self.plan().current.time;
                 } else {
-                    self.display.time = self.plan().init.time;
+                    new_dt = self.plan().init.time;
                 }
-                // since regen() is defined to preserve current display.time
-                self.regen();
+                self.regen_with_time(new_dt);
             } else if args.button == CONTROLS.switch_team {
                 self.display_a = !self.display_a;
                 self.regen();
