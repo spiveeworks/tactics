@@ -60,6 +60,23 @@ impl Server {
         result
     }
 
+    pub fn collision_imminent(
+        map: &path::Map,
+        state: &model::Snapshot,
+        unit: model::UnitState,
+    ) -> bool {
+        Self::unit_collision(map, state, unit).is_some()
+    }
+
+    // one of 3 causes of changes in state.
+    // this category is applied _before_ all others, as it should not overwrite
+    // effects such as other players weapons, or new voluntary actions.
+    // collision/boundary effects are when a wall gets in the way of movement
+    // or tool usage, and knowing these effects is required in two contexts,
+    // the first is applying the effects themselves during server simulation
+    // the second is checking that voluntary moves are valid by ensuring that
+    // they don't immediately result in a collision. (instant consequences are
+    // a problem for design complexity)
     fn unit_collision(
         map: &path::Map,
         state: &model::Snapshot,
@@ -135,7 +152,7 @@ impl Server {
     }
 
     fn is_valid(self: &Self, unit: model::UnitState) -> bool {
-        if Self::unit_collision(&self.map, &self.current, unit).is_some() {
+        if Self::collision_imminent(&self.map, &self.current, unit) {
             return false;
         }
         // also position continuity,
