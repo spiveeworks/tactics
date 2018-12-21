@@ -194,7 +194,13 @@ impl ClientApp {
         if let Some(&next_move) = lplan.get(&0) {
             moves.push(next_move);
         }
-        if let Some(&next_move) = rplan.get(&1) {
+        if let Some(&next_move) = lplan.get(&1) {
+            moves.push(next_move);
+        }
+        if let Some(&next_move) = rplan.get(&2) {
+            moves.push(next_move);
+        }
+        if let Some(&next_move) = rplan.get(&3) {
             moves.push(next_move);
         }
         let result = self
