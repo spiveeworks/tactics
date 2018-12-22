@@ -41,6 +41,24 @@ impl ServerApp {
     }
 }
 
+/*
+use std::thread;
+use std::sync::mpsc;
+fn delegate<R, F>(mut f: F) -> mpsc::Receiver<R> where
+    R: Send + 'static,
+    F: Send + 'static + FnMut() -> R,
+{
+    let (send, recv) = mpsc::sync_channel(0);
+    thread::spawn(move || {
+        loop {
+            let val = f();
+            send.send(val)
+                .unwrap();
+        }
+    });
+    recv
+}*/
+
 impl ServerInstance {
     fn new(path: &String) -> Self {
         let (teams, init, map) = save::read_scenario(path);
@@ -56,14 +74,14 @@ impl ServerInstance {
     }
 
     fn add_player(self: &mut Self, team: TID, player: net::TcpStream) {
-        //player.set_nonblocking(true).unwrap();
         let name = bincode::deserialize_from(&player)
             .expect("Failed to read player name");
+        self.player_names.insert(team, name);
+
         ::bincode::serialize_into(&player, &self.server.map)
             .expect("Failed to send map");
         ::bincode::serialize_into(&player, &self.server.current)
             .expect("Failed to send unit state");
-        self.player_names.insert(team, name);
         self.players.insert(team, player);
     }
 
