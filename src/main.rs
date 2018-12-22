@@ -58,20 +58,21 @@ fn readln() -> String {
     let stdin = ::std::io::stdin();
 
     stdin.read_line(&mut buffer).expect("Stdin failed");
+    buffer.pop();
     buffer
 }
 
 fn main() {
     let mut args = std::env::args();
+    let _this_app = args.next();
     let fst = args.next();
+    let ip = readln();
     if fst == Some("-s".to_string()) {
-        let ip = args.next().expect("no ip specified").to_string();
         let app = server_app::ServerApp::new(&ip);
         app.run();
     } else {
         println!("Enter ip to connect to: ");
-        let ip = readln();
-        let app = client_app::ClientApp::new_demo(&ip);
+        let app = client_app::ClientApp::new(&ip);
         piston_app::run_until_escape(app);
     }
 }

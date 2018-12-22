@@ -12,6 +12,7 @@ use client::*;
 
 pub struct ClientApp {
     client: Client,
+    server: net::TcpStream,
 
     display: model::Snapshot,
     updates: HashMap<EID, Update>,
@@ -60,13 +61,84 @@ static CONTROLS: Controls = Controls {
     submit:      window::Button::Keyboard(window::keyboard::Key::Return),
 };
 
+fn read_map(server: &net::TcpStream) -> path::Map {
+    let mut map = path::Map::new();
+
+    let polys = [
+        // centre block
+        vec![[29.0,29.0],[29.0,30.0],[30.0,30.0],[30.0,29.0]],
+        // centre walls
+        vec![[20.0,20.0],[27.0,20.0],[27.0,21.0],
+             [21.0,21.0],[21.0,27.0],[20.0,27.0]],
+        // outer diags
+        vec![[2.0, 2.0],[2.0,3.0],[15.0,16.0],
+             [16.0,16.0],[16.0,15.0],[3.0,2.0]],
+        // inner diags
+        vec![[10.0,20.0],[10.0,20.5],[17.5,28.0],
+             [18.0,28.0],[18.0,27.5],[10.5,20.0]],
+        vec![[20.0,10.0],[20.0,10.5],[27.5,18.0],
+             [28.0,18.0],[28.0,17.5],[20.5,10.0]],
+    ];
+    let fns = [[0.0,1.0],[60.0,-1.0]];
+    for poly in polys.iter() {
+        let len = poly.len();
+        for fx in fns.iter() {
+            for fy in fns.iter() {
+                for i in 1..len {
+                    let j = (i+1)%len;
+                    let f = |p: [f64;2]|
+                        [fx[0]+fx[1]*p[0],fy[0]+fy[1]*p[1]];
+                    map.push([f(poly[0]), f(poly[i]), f(poly[j])]);
+                }
+            }
+        }
+    }
+
+    map
+}
+
+fn read_snapshot(server: &net::TcpStream) -> model::Snapshot {
+    let mut init = model::Snapshot {
+        time: 0.0,
+        states: HashMap::new(),
+    };
+    let unit = model::UnitState {
+        id: 0,
+        pos: [30.0, 30.0],
+        vel: [0.0, 0.0],
+        time: 0.0,
+
+        weapon: model::Weapon::Gun,
+        action: model::Action::Mobile,
+        target_id: NULL_ID,
+        target_loc: [0.0, 0.0],
+    };
+    let mut units = [unit;4];
+    units[0].pos[0] = 5.0;
+    units[1].pos[0] = 55.0;
+    units[2].pos[1] = 5.0;
+    units[3].pos[1] = 55.0;
+    for i in 0..4 {
+        units[i].id = i as EID;
+        init.states.insert(i as EID, units[i]);
+    }
+
+    init
+}
+
 impl ClientApp {
-    fn new(init: model::Snapshot, map: path::Map) -> Self {
+    pub fn new<I: net::ToSocketAddrs>(ip: I) -> Self {
+        //init: model::Snapshot, map: path::Map) -> Self {
+        let server = net::TcpStream::connect(ip).expect("Failed to connect");
+        let map = read_map(&server);
+        let init = read_snapshot(&server);
         let client = Client::new(init, map);
 
         let display = client.init.clone();
-        ClientApp {
+        let mut result = ClientApp {
             client,
+            server,
+
             display,
             updates: HashMap::new(),
             planned: model::Timeline::new(),
@@ -75,7 +147,9 @@ impl ClientApp {
             mouse: [0.0, 0.0],
             playing: false,
             selected: NULL_ID,
-        }
+        };
+        result.regen();
+        result
     }
 
     fn unit_nearest_mouse(self: &Self) -> EID {
@@ -186,70 +260,6 @@ impl ClientApp {
         self.client_b.accept_outcome(&rplan, &result);
         self.regen_with_time(result.time);
         */
-    }
-
-    pub fn new_demo<I: net::ToSocketAddrs>(ip: I) -> Self {
-        let mut init = model::Snapshot {
-            time: 0.0,
-            states: HashMap::new(),
-        };
-        let unit = model::UnitState {
-            id: 0,
-            pos: [30.0, 30.0],
-            vel: [0.0, 0.0],
-            time: 0.0,
-
-            weapon: model::Weapon::Gun,
-            action: model::Action::Mobile,
-            target_id: NULL_ID,
-            target_loc: [0.0, 0.0],
-        };
-        let mut units = [unit;4];
-        units[0].pos[0] = 5.0;
-        units[1].pos[0] = 55.0;
-        units[2].pos[1] = 5.0;
-        units[3].pos[1] = 55.0;
-        for i in 0..4 {
-            units[i].id = i as EID;
-            init.states.insert(i as EID, units[i]);
-        }
-
-        let mut map = path::Map::new();
-
-        let polys = [
-            // centre block
-            vec![[29.0,29.0],[29.0,30.0],[30.0,30.0],[30.0,29.0]],
-            // centre walls
-            vec![[20.0,20.0],[27.0,20.0],[27.0,21.0],
-                 [21.0,21.0],[21.0,27.0],[20.0,27.0]],
-            // outer diags
-            vec![[2.0, 2.0],[2.0,3.0],[15.0,16.0],
-                 [16.0,16.0],[16.0,15.0],[3.0,2.0]],
-            // inner diags
-            vec![[10.0,20.0],[10.0,20.5],[17.5,28.0],
-                 [18.0,28.0],[18.0,27.5],[10.5,20.0]],
-            vec![[20.0,10.0],[20.0,10.5],[27.5,18.0],
-                 [28.0,18.0],[28.0,17.5],[20.5,10.0]],
-        ];
-        let fns = [[0.0,1.0],[60.0,-1.0]];
-        for poly in polys.iter() {
-            let len = poly.len();
-            for fx in fns.iter() {
-                for fy in fns.iter() {
-                    for i in 1..len {
-                        let j = (i+1)%len;
-                        let f = |p: [f64;2]|
-                            [fx[0]+fx[1]*p[0],fy[0]+fy[1]*p[1]];
-                        map.push([f(poly[0]), f(poly[i]), f(poly[j])]);
-                    }
-                }
-            }
-        }
-
-        let mut client = ClientApp::new(init, map);
-
-        client.regen();
-        client
     }
 }
 

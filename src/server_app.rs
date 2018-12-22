@@ -19,5 +19,7 @@ impl ServerApp {
     }
 
     pub fn run(self: Self) {
+        loop{
+        }
     }
 }
