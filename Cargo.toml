@@ -7,3 +7,6 @@ authors = ["SpiveeWorks <spiveehere@gmail.com>"]
 piston_app = { git = "https://github.com/spiveeworks/piston_app" }
 piston_window = "0.85"
 vecmath = "0.3"
+serde = "1.0"
+serde_derive = "1.0"
+bincode = "1.0.1"

@@ -11,8 +11,8 @@ enum Effect {
 }
 
 pub struct Server {
-    current: model::Snapshot,
-    map: path::Map,
+    pub current: model::Snapshot,
+    pub map: path::Map,
 }
 
 impl Server {

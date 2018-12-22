@@ -7,7 +7,6 @@ use std::net;
 use prelude::*;
 
 use model;
-use path;
 use client::*;
 
 pub struct ClientApp {
@@ -61,20 +60,14 @@ static CONTROLS: Controls = Controls {
     submit:      window::Button::Keyboard(window::keyboard::Key::Return),
 };
 
-fn read_map(server: &net::TcpStream) -> path::Map {
-    unimplemented!();
-}
-
-fn read_snapshot(server: &net::TcpStream) -> model::Snapshot {
-    unimplemented!();
-}
-
 impl ClientApp {
     pub fn new<I: net::ToSocketAddrs>(ip: I) -> Self {
         //init: model::Snapshot, map: path::Map) -> Self {
         let server = net::TcpStream::connect(ip).expect("Failed to connect");
-        let map = read_map(&server);
-        let init = read_snapshot(&server);
+        let map = ::bincode::deserialize_from(&server)
+            .expect("Failed to download/parse map");
+        let init = ::bincode::deserialize_from(&server)
+            .expect("Failed to download/parse unit states");
         let client = Client::new(init, map);
 
         let display = client.init.clone();

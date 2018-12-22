@@ -4,19 +4,19 @@ use std::iter;
 
 use prelude::*;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Weapon {
     Gun,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Action {
     Mobile,
     Shoot,
     Dead,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 pub struct UnitState {
     pub pos: Vec2,
     pub vel: Vec2,
@@ -29,6 +29,7 @@ pub struct UnitState {
     pub id: EID,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Timeline {
     pub snapshots: BTreeMap<Time, Snapshot>,
 }
@@ -62,7 +63,7 @@ impl iter::FromIterator<UnitState> for Timeline {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Snapshot {
     pub time: f64,
     pub states: HashMap<EID, UnitState>,

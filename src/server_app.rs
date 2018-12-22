@@ -18,15 +18,15 @@ impl ServerApp {
     pub fn new<I: net::ToSocketAddrs>(ip: I) -> Self {
         let listener = net::TcpListener::bind(ip)
             .expect("Failed to connect to server");
-        let teams = HashMap::new();
         let players = HashMap::new();
-        let init = Self::demo_snap();
+        let (teams, init) = Self::demo_snap();
         let map = Self::demo_map();
         let server = Server::new(init, map);
         ServerApp { listener, teams, players, server }
     }
 
-    fn demo_snap() -> model::Snapshot {
+    fn demo_snap() -> (HashMap<EID, TID>, model::Snapshot) {
+        let mut teams = HashMap::new();
         let mut init = model::Snapshot {
             time: 0.0,
             states: HashMap::new(),
@@ -48,11 +48,12 @@ impl ServerApp {
         units[2].pos[1] = 5.0;
         units[3].pos[1] = 55.0;
         for i in 0..4 {
+            teams.insert(i as EID, if i < 2 { 0 } else { 1 });
             units[i].id = i as EID;
             init.states.insert(i as EID, units[i]);
         }
 
-        init
+        (teams, init)
     }
 
     fn demo_map() -> path::Map {
@@ -106,6 +107,9 @@ impl ServerApp {
 
     fn introduce(self: &mut Self, team: TID) {
         let player = &self.players[&team];
-        unimplemented!();
+        ::bincode::serialize_into(player, &self.server.map)
+            .expect("Failed to send map");
+        ::bincode::serialize_into(player, &self.server.current)
+            .expect("Failed to send unit state");
     }
 }

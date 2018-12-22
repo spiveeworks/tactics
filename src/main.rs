@@ -2,6 +2,11 @@ extern crate piston_app;
 extern crate piston_window;
 extern crate vecmath;
 
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+extern crate bincode;
+
 
 mod model;
 mod path;
@@ -22,7 +27,7 @@ pub mod prelude {
     pub use vecmath::{vec2_scale, vec2_add, vec2_sub};
 
     // should use NotNaN crate
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Serialize, Deserialize)]
     pub struct Time(pub f64);
 
     use std::cmp;
