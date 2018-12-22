@@ -43,6 +43,7 @@ impl Update {
 struct Controls {
     select: window::Button,
     remove_comm: window::Button,
+    cancel_comm: window::Button,
     nav: window::Button,
     shoot: window::Button,
     wait: window::Button,
@@ -55,6 +56,7 @@ static CONTROLS: Controls = Controls {
     select:      window::Button::Mouse(window::mouse::MouseButton::Left),
     nav:         window::Button::Mouse(window::mouse::MouseButton::Right),
     remove_comm: window::Button::Keyboard(window::keyboard::Key::Backspace),
+    cancel_comm: window::Button::Keyboard(window::keyboard::Key::X),
     shoot:       window::Button::Keyboard(window::keyboard::Key::Q),
     wait:        window::Button::Keyboard(window::keyboard::Key::W),
     playpause:   window::Button::Keyboard(window::keyboard::Key::Space),
@@ -112,7 +114,7 @@ impl ClientApp {
     fn edit_plan(self: &mut Self, op: u16) {
         {
             let id = self.selected;
-            let mouse_id = if op == 2 {
+            let mouse_id = if op == 3 {
                 self.unit_nearest_mouse()
             } else {
                 NULL_ID
@@ -125,9 +127,10 @@ impl ClientApp {
             let plan = plan.unwrap();
             match op {
                 0 => {plan.pop();},
-                1 => plan.push(Command::Nav(mouse)),
-                2 => plan.push(Command::Shoot(mouse_id)),
-                3 => plan.push(Command::Wait(1.0)),
+                1 => plan.push(Command::Cancel),
+                2 => plan.push(Command::Nav(mouse)),
+                3 => plan.push(Command::Shoot(mouse_id)),
+                4 => plan.push(Command::Wait(1.0)),
                 _ => panic!("edit.client called with {}", op),
             }
         }
@@ -390,12 +393,14 @@ impl piston_app::App for ClientApp {
                 self.selected = self.unit_nearest_mouse();
             } else if args.button == CONTROLS.remove_comm {
                 self.edit_plan(0);
-            } else if args.button == CONTROLS.nav {
+            } else if args.button == CONTROLS.cancel_comm {
                 self.edit_plan(1);
-            } else if args.button == CONTROLS.shoot {
+            } else if args.button == CONTROLS.nav {
                 self.edit_plan(2);
-            } else if args.button == CONTROLS.wait {
+            } else if args.button == CONTROLS.shoot {
                 self.edit_plan(3);
+            } else if args.button == CONTROLS.wait {
+                self.edit_plan(4);
             } else if args.button == CONTROLS.playpause {
                 self.playing = !self.playing;
             } else if args.button == CONTROLS.restart {
