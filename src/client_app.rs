@@ -63,13 +63,18 @@ static CONTROLS: Controls = Controls {
 };
 
 impl ClientApp {
-    pub fn new<I: net::ToSocketAddrs>(ip: I) -> Self {
+    pub fn new<I: net::ToSocketAddrs>(ip: I, name: String) -> Self {
         //init: model::Snapshot, map: path::Map) -> Self {
         let server = net::TcpStream::connect(ip).expect("Failed to connect");
+        ::bincode::serialize_into(&server, &name)
+            .expect("Failed to send name to server");
         let map = ::bincode::deserialize_from(&server)
             .expect("Failed to download/parse map");
         let init = ::bincode::deserialize_from(&server)
             .expect("Failed to download/parse unit states");
+        let intro: String = ::bincode::deserialize_from(&server)
+            .expect("Failed to download roster");
+        print!("{}", intro);
         let client = Client::new(init, map);
 
         let display = client.init.clone();
