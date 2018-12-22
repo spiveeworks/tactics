@@ -202,7 +202,11 @@ impl ClientApp {
             return;
         }
         let mut byte = [0];
+        self.server.set_nonblocking(true)
+            .expect("Error setting nonblocking");
         let success = self.server.peek(&mut byte);
+        self.server.set_nonblocking(false)
+            .expect("Error setting nonblocking");
         if success.is_err() || success.unwrap() != 1 {
             return;
         }
