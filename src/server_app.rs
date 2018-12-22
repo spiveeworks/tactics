@@ -43,7 +43,7 @@ impl ServerApp {
             pos: (f64, f64),
             weapon: model::Weapon,
         }
-        let (units, map): (Vec<Unit>, path::Map) = ::toml::from_str(&stuff)
+        let (units, map): (Vec<Unit>, path::Map) = ::ron::de::from_str(&stuff)
             .expect("Failed to read file");
 
         let mut teams = HashMap::new();
@@ -113,7 +113,9 @@ impl ServerApp {
             }
         }
 
-        let toml = ::toml::to_string(&(units, map)).unwrap();
+        let config = Default::default();
+        let toml = ::ron::ser::to_string_pretty(&(units, map), config)
+            .unwrap();
         let mut file = ::std::fs::File::create("demo").unwrap();
         use std::io::Write;
         file.write_all(toml.as_bytes()).unwrap();

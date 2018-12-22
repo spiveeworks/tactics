@@ -6,7 +6,7 @@ extern crate vecmath;
 extern crate serde_derive;
 extern crate serde;
 extern crate bincode;
-extern crate toml;
+extern crate ron;
 
 
 mod model;
