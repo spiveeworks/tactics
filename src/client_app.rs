@@ -235,7 +235,7 @@ impl piston_app::App for ClientApp {
         use self::window::Graphics;
         window::clear([0.0, 0.0, 0.0, 1.0], graphics);
 
-        let flash_speed = 1.0;
+        let flash_speed = 0.5;
         let flash_new = self.playing ||
             sys_time() % (2.0*flash_speed) < flash_speed;
 
