@@ -14,6 +14,7 @@ use client::*;
 pub struct ClientApp {
     client: Client,
     server: net::TcpStream,
+    waiting: bool,
 
     display: model::Snapshot,
     updates: HashMap<EID, Update>,
@@ -83,6 +84,7 @@ impl ClientApp {
         let mut result = ClientApp {
             client,
             server,
+            waiting: false,
 
             display,
             updates: HashMap::new(),
@@ -184,8 +186,22 @@ impl ClientApp {
         let plan = self.client.next_moves();
         ::bincode::serialize_into(&self.server, &plan)
             .expect("Failed to send plan to server");
+        self.waiting = true;
+    }
+
+    fn check_server(self: &mut Self) {
+        if !self.waiting {
+            return;
+        }
+        let mut byte = [0];
+        let success = self.server.peek(&mut byte);
+        if success.is_err() || success.unwrap() != 1 {
+            return;
+        }
         let result = ::bincode::deserialize_from(&self.server)
             .expect("Failed to receive result from server");
+        self.waiting = false;
+        let plan = self.client.next_moves();
         self.client.accept_outcome(&plan, &result);
         self.regen_with_time(result.time);
     }
@@ -363,6 +379,7 @@ impl piston_app::App for ClientApp {
         self: &mut Self,
         _args: window::UpdateArgs,
     ) {
+        self.check_server();
         if !self.playing {
             return
         }
