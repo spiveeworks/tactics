@@ -14,7 +14,7 @@ use client::*;
 pub struct ClientApp {
     client: Client,
     server: net::TcpStream,
-    waiting: bool,
+    waiting: ServerState,
 
     display: model::Snapshot,
     updates: HashMap<EID, Update>,
@@ -24,6 +24,14 @@ pub struct ClientApp {
     selected: EID,
     mouse: Vec2,
     playing: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ServerState {
+    Planning,
+    ConfirmSubmit,
+    Waiting,
+    Display,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -84,7 +92,7 @@ impl ClientApp {
         let mut result = ClientApp {
             client,
             server,
-            waiting: false,
+            waiting: ServerState::Planning,
 
             display,
             updates: HashMap::new(),
@@ -186,11 +194,11 @@ impl ClientApp {
         let plan = self.client.next_moves();
         ::bincode::serialize_into(&self.server, &plan)
             .expect("Failed to send plan to server");
-        self.waiting = true;
+        self.waiting = ServerState::Waiting;
     }
 
     fn check_server(self: &mut Self) {
-        if !self.waiting {
+        if self.waiting != ServerState::Waiting {
             return;
         }
         let mut byte = [0];
@@ -200,10 +208,11 @@ impl ClientApp {
         }
         let result = ::bincode::deserialize_from(&self.server)
             .expect("Failed to receive result from server");
-        self.waiting = false;
+        self.waiting = ServerState::Display;
         let plan = self.client.next_moves();
         self.client.accept_outcome(&plan, &result);
         self.regen_with_time(result.time);
+        self.playing = false;
     }
 }
 
@@ -373,6 +382,29 @@ impl piston_app::App for ClientApp {
             }
         }
         graphics.tri_list(&Default::default(), &path_color, |f| f(&*tri_list));
+
+        use self::ServerState::*;
+        match self.waiting {
+            Planning => (),
+            ConfirmSubmit => window::ellipse(
+                [1.0,1.0,0.0,1.0],
+                [5.0,5.0,15.0,15.0],
+                centre.transform,
+                graphics,
+            ),
+            Waiting => window::ellipse(
+                [1.0,0.0,0.0,1.0],
+                [5.0,5.0,15.0,15.0],
+                centre.transform,
+                graphics,
+            ),
+            Display => window::ellipse(
+                [0.0,1.0,0.0,1.0],
+                [5.0,5.0,15.0,15.0],
+                centre.transform,
+                graphics,
+            ),
+        }
     }
 
     fn on_update(
@@ -406,6 +438,7 @@ impl piston_app::App for ClientApp {
         args: window::ButtonArgs,
     ) {
         if args.state == window::ButtonState::Press {
+            let mut input = true;
             if args.button == CONTROLS.select {
                 self.selected = self.unit_nearest_mouse();
             } else if args.button == CONTROLS.remove_comm {
@@ -431,7 +464,16 @@ impl piston_app::App for ClientApp {
                 }
                 self.regen_with_time(new_dt);
             } else if args.button == CONTROLS.submit {
-                self.submit_server();
+                use self::ServerState::*;
+                match self.waiting {
+                    Planning | Display => self.waiting = ConfirmSubmit,
+                    ConfirmSubmit => self.submit_server(),
+                    Waiting => (),
+                }
+                input = false;
+            }
+            if input && self.waiting != ServerState::Waiting {
+                self.waiting = ServerState::Planning;
             }
         }
     }
