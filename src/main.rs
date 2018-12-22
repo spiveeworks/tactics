@@ -11,6 +11,7 @@ extern crate ron;
 
 mod model;
 mod path;
+mod save;
 mod server;
 mod client;
 mod server_app;
