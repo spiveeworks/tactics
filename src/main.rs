@@ -63,8 +63,7 @@ fn readln() -> String {
     let stdin = ::std::io::stdin();
 
     stdin.read_line(&mut buffer).expect("Stdin failed");
-    buffer.pop();
-    buffer
+    buffer.split_whitespace().next().expect("No ip entered").to_string()
 }
 
 fn main() {
