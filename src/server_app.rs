@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net;
-use std::time;
 
 use prelude::*;
 
@@ -17,49 +16,71 @@ pub struct ServerApp {
 }
 
 impl ServerApp {
-    pub fn new<I: net::ToSocketAddrs>(ip: I) -> Self {
+    pub fn new<I: net::ToSocketAddrs>(ip: I, path: String) -> Self {
         let listener = net::TcpListener::bind(ip)
             .expect("Failed to connect to server");
         let players = HashMap::new();
-        let (teams, init) = Self::demo_snap();
-        let map = Self::demo_map();
+        Self::gen_map();
+        let (teams, init, map) = Self::read_scenario(path);
         let server = Server::new(init, map);
         //let read_timeout = Some(time::Duration::from_millis(100));
         ServerApp { listener, teams, players, server, }
     }
 
-    fn demo_snap() -> (HashMap<EID, TID>, model::Snapshot) {
-        let mut teams = HashMap::new();
-        let mut init = model::Snapshot {
-            time: 0.0,
-            states: HashMap::new(),
-        };
-        let unit = model::UnitState {
-            id: 0,
-            pos: [30.0, 30.0],
-            vel: [0.0, 0.0],
-            time: 0.0,
+    fn read_scenario(path: String)
+        -> (HashMap<EID, TID>, model::Snapshot, path::Map)
+    {
+        let mut file = ::std::fs::File::open(path)
+            .expect("Couldn't open file");
+        let mut stuff = String::new();
+        use std::io::Read;
+        file.read_to_string(&mut stuff)
+            .expect("Couldn't read file");
 
-            weapon: model::Weapon::Gun,
-            action: model::Action::Mobile,
-            target_id: NULL_ID,
-            target_loc: [0.0, 0.0],
-        };
-        let mut units = [unit;4];
-        units[0].pos[0] = 5.0;
-        units[1].pos[0] = 55.0;
-        units[2].pos[1] = 5.0;
-        units[3].pos[1] = 55.0;
-        for i in 0..4 {
-            teams.insert(i as EID, if i < 2 { 0 } else { 1 });
-            units[i].id = i as EID;
-            init.states.insert(i as EID, units[i]);
+        #[derive(Deserialize)]
+        struct Unit {
+            team: TID,
+            pos: (f64, f64),
+            weapon: model::Weapon,
         }
+        let (units, map): (Vec<Unit>, path::Map) = ::toml::from_str(&stuff)
+            .expect("Failed to read file");
 
-        (teams, init)
+        let mut teams = HashMap::new();
+        let mut init = model::Snapshot::new();
+        for i in 0..units.len() {
+            let id = i as EID;
+            let Unit { pos: (x, y), team, weapon } = units[i];
+            let unit = model::UnitState {
+                id,
+                pos: [x, y],
+                vel: [0.0, 0.0],
+                time: init.time,
+
+                weapon,
+                action: model::Action::Mobile,
+                target_id: NULL_ID,
+                target_loc: [0.0, 0.0],
+            };
+            init.states.insert(id, unit);
+            teams.insert(id, team);
+        }
+        (teams, init, map)
     }
+    fn gen_map() {
+        #[derive(Serialize)]
+        struct Unit {
+            team: TID,
+            pos: (f64, f64),
+            weapon: model::Weapon,
+        }
+        let units = vec![
+            Unit { team: 0, pos: (5.0, 30.0), weapon: model::Weapon::Gun },
+            Unit { team: 0, pos: (55.0, 30.0), weapon: model::Weapon::Gun },
+            Unit { team: 1, pos: (30.0, 5.0), weapon: model::Weapon::Gun },
+            Unit { team: 1, pos: (30.0, 55.0), weapon: model::Weapon::Gun },
+        ];
 
-    fn demo_map() -> path::Map {
         let mut map = path::Map::new();
 
         let polys = [
@@ -92,7 +113,10 @@ impl ServerApp {
             }
         }
 
-        map
+        let toml = ::toml::to_string(&(units, map)).unwrap();
+        let mut file = ::std::fs::File::create("demo").unwrap();
+        use std::io::Write;
+        file.write_all(toml.as_bytes()).unwrap();
     }
 
     pub fn run(mut self: Self) {

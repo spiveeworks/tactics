@@ -6,6 +6,7 @@ extern crate vecmath;
 extern crate serde_derive;
 extern crate serde;
 extern crate bincode;
+extern crate toml;
 
 
 mod model;
@@ -72,7 +73,8 @@ fn main() {
     let fst = args.next();
     let ip = readln();
     if fst == Some("-s".to_string()) {
-        let app = server_app::ServerApp::new(&ip);
+        let path = args.next().unwrap_or("map".to_string());
+        let app = server_app::ServerApp::new(&ip, path);
         app.run();
     } else {
         println!("Enter ip to connect to: ");
