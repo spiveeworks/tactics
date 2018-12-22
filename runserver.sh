@@ -1,6 +1,6 @@
 #/bin/sh
 
-ip=`hostname -i`
+ip=`hostname -i | sed -e 's/ //'`
 port=29563
 
 while true
