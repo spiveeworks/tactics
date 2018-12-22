@@ -5,6 +5,6 @@ port=29563
 
 while true
 do
-	echo "$ip:$port" | cargo run --release -- -s
+	echo "$ip:$port" | cargo run --release -- -s demo
 done
 
