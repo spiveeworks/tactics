@@ -76,8 +76,11 @@ fn main() {
     let ip = readln();
     if fst == Some("-s".to_string()) {
         let path = args.next().unwrap_or("map".to_string());
-        let app = server_app::ServerApp::new(&ip, path);
-        app.run();
+        let mut app = server_app::ServerApp::new(&ip);
+        loop {
+            let server = app.spawn_instance(&path);
+            server.run_async();
+        }
     } else {
         println!("Enter a name: ");
         let name = readln();
