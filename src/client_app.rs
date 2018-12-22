@@ -1,5 +1,7 @@
 
 use piston_window as window;
+use vecmath;
+use piston_app;
 
 use std::collections::HashMap;
 use std::net;
