@@ -171,31 +171,13 @@ impl ClientApp {
     }
 
     fn submit_server(self: &mut Self) {
-        unimplemented!();
-        /*
-        let lplan = self.client_a.next_moves();
-        let rplan = self.client_b.next_moves();
-        let mut moves = Vec::new();
-        if let Some(&next_move) = lplan.get(&0) {
-            moves.push(next_move);
-        }
-        if let Some(&next_move) = lplan.get(&1) {
-            moves.push(next_move);
-        }
-        if let Some(&next_move) = rplan.get(&2) {
-            moves.push(next_move);
-        }
-        if let Some(&next_move) = rplan.get(&3) {
-            moves.push(next_move);
-        }
-        let result = self
-            .server
-            .resolve(moves.into_iter())
-            .expect("Server rejected plan");
-        self.client_a.accept_outcome(&lplan, &result);
-        self.client_b.accept_outcome(&rplan, &result);
+        let plan = self.client.next_moves();
+        ::bincode::serialize_into(&self.server, &plan)
+            .expect("Failed to send plan to server");
+        let result = ::bincode::deserialize_from(&self.server)
+            .expect("Failed to receive result from server");
+        self.client.accept_outcome(&plan, &result);
         self.regen_with_time(result.time);
-        */
     }
 }
 

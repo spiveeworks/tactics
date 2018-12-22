@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net;
+use std::time;
 
 use prelude::*;
 
@@ -12,6 +13,7 @@ pub struct ServerApp {
     teams: HashMap<EID, TID>,
     players: HashMap<TID, net::TcpStream>,
     server: Server,
+    // read_timeout: Option<time::Duration>,
 }
 
 impl ServerApp {
@@ -22,7 +24,8 @@ impl ServerApp {
         let (teams, init) = Self::demo_snap();
         let map = Self::demo_map();
         let server = Server::new(init, map);
-        ServerApp { listener, teams, players, server }
+        //let read_timeout = Some(time::Duration::from_millis(100));
+        ServerApp { listener, teams, players, server, }
     }
 
     fn demo_snap() -> (HashMap<EID, TID>, model::Snapshot) {
@@ -96,20 +99,38 @@ impl ServerApp {
         for (_unit, team) in self.teams.clone() {
             if !self.players.contains_key(&team) {
                 println!("Waiting for player {}", team);
-                let player = self.listener.accept().unwrap().0;
+                let mut player = self.listener.accept().unwrap().0;
+                // player.set_read_timeout(self.read_timeout);
+                ::bincode::serialize_into(&player, &self.server.map)
+                    .expect("Failed to send map");
+                ::bincode::serialize_into(&player, &self.server.current)
+                    .expect("Failed to send unit state");
                 self.players.insert(team, player);
-                self.introduce(team);
             }
         }
         loop {
+            let mut plans = HashMap::new();
+            for (&team, player) in &self.players {
+                let plan: HashMap<EID, model::UnitState> =
+                    ::bincode::deserialize_from(player)
+                    .expect(
+                        &format!("Failed to get plan from player {}", team)
+                    );
+                plans.insert(team, plan);
+            }
+            let mut moves = Vec::with_capacity(self.teams.len());
+            for (&unit, &team) in &self.teams {
+                let plan = &plans[&team];
+                if plan.contains_key(&unit) {
+                    moves.push(plan[&unit]);
+                }
+            }
+            let result = self.server.resolve(moves.into_iter())
+                .expect("Player submitted invalid move");
+            for (_, player) in &self.players {
+                ::bincode::serialize_into(player, &result)
+                    .expect("Failed to send server result");
+            }
         }
-    }
-
-    fn introduce(self: &mut Self, team: TID) {
-        let player = &self.players[&team];
-        ::bincode::serialize_into(player, &self.server.map)
-            .expect("Failed to send map");
-        ::bincode::serialize_into(player, &self.server.current)
-            .expect("Failed to send unit state");
     }
 }
