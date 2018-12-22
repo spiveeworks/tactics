@@ -2,19 +2,17 @@
 use piston_window as window;
 
 use std::collections::HashMap;
+use std::net;
 
 use prelude::*;
 
 use model;
-use path;
 use client::*;
-use server::*;
 
 pub struct ClientApp {
-    map: path::Map,
-    client_a: Client,
-    client_b: Client,
-    server: Server,
+    client: Client,
+    server: net::TcpStream,
+
     display: model::Snapshot,
     updates: HashMap<EID, Update>,
     planpaths: Plan,
@@ -23,7 +21,6 @@ pub struct ClientApp {
     selected: EID,
     mouse: Vec2,
     playing: bool,
-    display_a: bool,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -49,7 +46,6 @@ struct Controls {
     wait: window::Button,
     playpause: window::Button,
     restart: window::Button,
-    switch_team: window::Button,
     submit: window::Button,
 }
 
@@ -61,22 +57,24 @@ static CONTROLS: Controls = Controls {
     wait:        window::Button::Keyboard(window::keyboard::Key::W),
     playpause:   window::Button::Keyboard(window::keyboard::Key::Space),
     restart:     window::Button::Keyboard(window::keyboard::Key::R),
-    switch_team: window::Button::Keyboard(window::keyboard::Key::LAlt),
     submit:      window::Button::Keyboard(window::keyboard::Key::Return),
 };
 
 impl ClientApp {
-    fn new(init: model::Snapshot, map: path::Map) -> Self {
-        let client_a = Client::new(init.clone(), map.clone());
-        let client_b = Client::new(init, map.clone());
-        let server = Server::new(client_a.current.clone(), map.clone());
+    pub fn new<I: net::ToSocketAddrs>(ip: I) -> Self {
+        //init: model::Snapshot, map: path::Map) -> Self {
+        let server = net::TcpStream::connect(ip).expect("Failed to connect");
+        let map = ::bincode::deserialize_from(&server)
+            .expect("Failed to download/parse map");
+        let init = ::bincode::deserialize_from(&server)
+            .expect("Failed to download/parse unit states");
+        let client = Client::new(init, map);
 
-        let display = client_a.init.clone();
-        ClientApp {
-            map,
-            client_a,
-            client_b,
+        let display = client.init.clone();
+        let mut result = ClientApp {
+            client,
             server,
+
             display,
             updates: HashMap::new(),
             planned: model::Timeline::new(),
@@ -84,25 +82,10 @@ impl ClientApp {
 
             mouse: [0.0, 0.0],
             playing: false,
-            display_a: true,
             selected: NULL_ID,
-        }
-    }
-
-    fn plan(self: &Self) -> &Client {
-        if self.display_a {
-            &self.client_a
-        } else {
-            &self.client_b
-        }
-    }
-
-    fn plan_mut(self: &mut Self) -> &mut Client {
-        if self.display_a {
-            &mut self.client_a
-        } else {
-            &mut self.client_b
-        }
+        };
+        result.regen();
+        result
     }
 
     fn unit_nearest_mouse(self: &Self) -> EID {
@@ -128,7 +111,7 @@ impl ClientApp {
                 NULL_ID
             };
             let mouse = self.mouse;
-            let plan = self.plan_mut().plans.get_mut(&id);
+            let plan = self.client.plans.get_mut(&id);
             if plan.is_none() {
                 return;
             }
@@ -138,7 +121,7 @@ impl ClientApp {
                 1 => plan.push(Command::Nav(mouse)),
                 2 => plan.push(Command::Shoot(mouse_id)),
                 3 => plan.push(Command::Wait(1.0)),
-                _ => panic!("edit_plan() called with {}", op),
+                _ => panic!("edit.client called with {}", op),
             }
         }
         self.regen();
@@ -150,12 +133,12 @@ impl ClientApp {
     }
 
     fn regen_with_time(self: &mut Self, time: f64) {
-        let (plan, timeline) = self.plan().gen_planned();
+        let (plan, timeline) = self.client.gen_planned();
         self.planpaths = plan;
         self.planned = timeline;
         self.display = self.get_display(time);
         let prevtime = time - 0.1;
-        if prevtime >= self.plan().init.time {
+        if prevtime >= self.client.init.time {
             let prevdisplay = self.get_display(prevtime);
             self.regen_updates(&prevdisplay);
         } else {
@@ -177,103 +160,24 @@ impl ClientApp {
 
     fn get_display(self: &Self, time: f64) -> model::Snapshot {
         let mut display;
-        if time < self.plan().current.time {
-            display = self.plan().init.clone();
-            display.update(&self.plan().confirmed, time);
+        if time < self.client.current.time {
+            display = self.client.init.clone();
+            display.update(&self.client.confirmed, time);
         } else {
-            display = self.plan().current.clone();
+            display = self.client.current.clone();
             display.update(&self.planned, time);
         }
         display
     }
 
     fn submit_server(self: &mut Self) {
-        let lplan = self.client_a.next_moves();
-        let rplan = self.client_b.next_moves();
-        let mut moves = Vec::new();
-        if let Some(&next_move) = lplan.get(&0) {
-            moves.push(next_move);
-        }
-        if let Some(&next_move) = lplan.get(&1) {
-            moves.push(next_move);
-        }
-        if let Some(&next_move) = rplan.get(&2) {
-            moves.push(next_move);
-        }
-        if let Some(&next_move) = rplan.get(&3) {
-            moves.push(next_move);
-        }
-        let result = self
-            .server
-            .resolve(moves.into_iter())
-            .expect("Server rejected plan");
-        self.client_a.accept_outcome(&lplan, &result);
-        self.client_b.accept_outcome(&rplan, &result);
+        let plan = self.client.next_moves();
+        ::bincode::serialize_into(&self.server, &plan)
+            .expect("Failed to send plan to server");
+        let result = ::bincode::deserialize_from(&self.server)
+            .expect("Failed to receive result from server");
+        self.client.accept_outcome(&plan, &result);
         self.regen_with_time(result.time);
-    }
-
-    pub fn new_demo() -> Self {
-        let mut init = model::Snapshot {
-            time: 0.0,
-            states: HashMap::new(),
-        };
-        let unit = model::UnitState {
-            id: 0,
-            pos: [30.0, 30.0],
-            vel: [0.0, 0.0],
-            time: 0.0,
-
-            weapon: model::Weapon::Gun,
-            action: model::Action::Mobile,
-            target_id: NULL_ID,
-            target_loc: [0.0, 0.0],
-        };
-        let mut units = [unit;4];
-        units[0].pos[0] = 5.0;
-        units[1].pos[0] = 55.0;
-        units[2].pos[1] = 5.0;
-        units[3].pos[1] = 55.0;
-        for i in 0..4 {
-            units[i].id = i;
-            init.states.insert(i, units[i]);
-        }
-
-        let mut map = path::Map::new();
-
-        let polys = [
-            // centre block
-            vec![[29.0,29.0],[29.0,30.0],[30.0,30.0],[30.0,29.0]],
-            // centre walls
-            vec![[20.0,20.0],[27.0,20.0],[27.0,21.0],
-                 [21.0,21.0],[21.0,27.0],[20.0,27.0]],
-            // outer diags
-            vec![[2.0, 2.0],[2.0,3.0],[15.0,16.0],
-                 [16.0,16.0],[16.0,15.0],[3.0,2.0]],
-            // inner diags
-            vec![[10.0,20.0],[10.0,20.5],[17.5,28.0],
-                 [18.0,28.0],[18.0,27.5],[10.5,20.0]],
-            vec![[20.0,10.0],[20.0,10.5],[27.5,18.0],
-                 [28.0,18.0],[28.0,17.5],[20.5,10.0]],
-        ];
-        let fns = [[0.0,1.0],[60.0,-1.0]];
-        for poly in polys.iter() {
-            let len = poly.len();
-            for fx in fns.iter() {
-                for fy in fns.iter() {
-                    for i in 1..len {
-                        let j = (i+1)%len;
-                        let f = |p: [f64;2]|
-                            [fx[0]+fx[1]*p[0],fy[0]+fy[1]*p[1]];
-                        map.push([f(poly[0]), f(poly[i]), f(poly[j])]);
-                    }
-                }
-            }
-        }
-
-        let mut client = ClientApp::new(init, map);
-
-        client.regen();
-        client
     }
 }
 
@@ -380,7 +284,7 @@ impl piston_app::App for ClientApp {
         }
 
         let path_color = [1.0, 1.0, 1.0, 1.0];
-        let client = &self.plan();
+        let client = &self.client;
         for (id, plan) in &self.planpaths {
             let mut pos_list = Vec::new();
             let mut unit = client.current.states[&id];
@@ -431,7 +335,7 @@ impl piston_app::App for ClientApp {
         }
 
         let mut tri_list = Vec::with_capacity(client.map.len() * 3);
-        for &trig in &self.map {
+        for &trig in &self.client.map {
             // rust unroll plz <3
             for p in 0..3 {
                 let x = trig[p][0];
@@ -458,15 +362,11 @@ impl piston_app::App for ClientApp {
         {
             let tl;
             // redundancy because borrow checker
-            if new_time <= self.plan().current.time {
-                tl = if self.display_a {
-                    &self.client_a.confirmed
-                } else {
-                    &self.client_b.confirmed
-                }
+            if new_time <= self.client.current.time {
+                tl = &self.client.confirmed;
             } else {
-                if self.display.time <= self.plan().current.time {
-                    self.display = self.plan().current.clone();
+                if self.display.time <= self.client.current.time {
+                    self.display = self.client.current.clone();
                 }
                 tl = &self.planned;
             }
@@ -493,17 +393,14 @@ impl piston_app::App for ClientApp {
                 self.playing = !self.playing;
             } else if args.button == CONTROLS.restart {
                 let dt = self.display.time;
-                let ct = self.plan().current.time;
+                let ct = self.client.current.time;
                 let new_dt;
-                if dt > ct || dt == self.plan().init.time {
-                    new_dt = self.plan().current.time;
+                if dt > ct || dt == self.client.init.time {
+                    new_dt = self.client.current.time;
                 } else {
-                    new_dt = self.plan().init.time;
+                    new_dt = self.client.init.time;
                 }
                 self.regen_with_time(new_dt);
-            } else if args.button == CONTROLS.switch_team {
-                self.display_a = !self.display_a;
-                self.regen();
             } else if args.button == CONTROLS.submit {
                 self.submit_server();
             }
