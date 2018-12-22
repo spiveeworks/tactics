@@ -17,7 +17,7 @@ struct Scenario {
     map: Vec<Vec<Vec2>>,
 }
 
-pub fn read_scenario(path: String)
+pub fn read_scenario(path: &String)
     -> (HashMap<EID, TID>, model::Snapshot, path::Map)
 {
     let mut file = ::std::fs::File::open(path)
