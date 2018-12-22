@@ -9,13 +9,10 @@ use prelude::*;
 use model;
 use path;
 use client::*;
-use server::*;
 
 pub struct ClientApp {
-    map: path::Map,
-    client_a: Client,
-    client_b: Client,
-    server: Server,
+    client: Client,
+
     display: model::Snapshot,
     updates: HashMap<EID, Update>,
     planpaths: Plan,
@@ -24,7 +21,6 @@ pub struct ClientApp {
     selected: EID,
     mouse: Vec2,
     playing: bool,
-    display_a: bool,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -50,7 +46,6 @@ struct Controls {
     wait: window::Button,
     playpause: window::Button,
     restart: window::Button,
-    switch_team: window::Button,
     submit: window::Button,
 }
 
@@ -62,22 +57,16 @@ static CONTROLS: Controls = Controls {
     wait:        window::Button::Keyboard(window::keyboard::Key::W),
     playpause:   window::Button::Keyboard(window::keyboard::Key::Space),
     restart:     window::Button::Keyboard(window::keyboard::Key::R),
-    switch_team: window::Button::Keyboard(window::keyboard::Key::LAlt),
     submit:      window::Button::Keyboard(window::keyboard::Key::Return),
 };
 
 impl ClientApp {
     fn new(init: model::Snapshot, map: path::Map) -> Self {
-        let client_a = Client::new(init.clone(), map.clone());
-        let client_b = Client::new(init, map.clone());
-        let server = Server::new(client_a.current.clone(), map.clone());
+        let client = Client::new(init, map);
 
-        let display = client_a.init.clone();
+        let display = client.init.clone();
         ClientApp {
-            map,
-            client_a,
-            client_b,
-            server,
+            client,
             display,
             updates: HashMap::new(),
             planned: model::Timeline::new(),
@@ -85,24 +74,7 @@ impl ClientApp {
 
             mouse: [0.0, 0.0],
             playing: false,
-            display_a: true,
             selected: NULL_ID,
-        }
-    }
-
-    fn plan(self: &Self) -> &Client {
-        if self.display_a {
-            &self.client_a
-        } else {
-            &self.client_b
-        }
-    }
-
-    fn plan_mut(self: &mut Self) -> &mut Client {
-        if self.display_a {
-            &mut self.client_a
-        } else {
-            &mut self.client_b
         }
     }
 
@@ -129,7 +101,7 @@ impl ClientApp {
                 NULL_ID
             };
             let mouse = self.mouse;
-            let plan = self.plan_mut().plans.get_mut(&id);
+            let plan = self.client.plans.get_mut(&id);
             if plan.is_none() {
                 return;
             }
@@ -139,7 +111,7 @@ impl ClientApp {
                 1 => plan.push(Command::Nav(mouse)),
                 2 => plan.push(Command::Shoot(mouse_id)),
                 3 => plan.push(Command::Wait(1.0)),
-                _ => panic!("edit_plan() called with {}", op),
+                _ => panic!("edit.client called with {}", op),
             }
         }
         self.regen();
@@ -151,12 +123,12 @@ impl ClientApp {
     }
 
     fn regen_with_time(self: &mut Self, time: f64) {
-        let (plan, timeline) = self.plan().gen_planned();
+        let (plan, timeline) = self.client.gen_planned();
         self.planpaths = plan;
         self.planned = timeline;
         self.display = self.get_display(time);
         let prevtime = time - 0.1;
-        if prevtime >= self.plan().init.time {
+        if prevtime >= self.client.init.time {
             let prevdisplay = self.get_display(prevtime);
             self.regen_updates(&prevdisplay);
         } else {
@@ -178,17 +150,19 @@ impl ClientApp {
 
     fn get_display(self: &Self, time: f64) -> model::Snapshot {
         let mut display;
-        if time < self.plan().current.time {
-            display = self.plan().init.clone();
-            display.update(&self.plan().confirmed, time);
+        if time < self.client.current.time {
+            display = self.client.init.clone();
+            display.update(&self.client.confirmed, time);
         } else {
-            display = self.plan().current.clone();
+            display = self.client.current.clone();
             display.update(&self.planned, time);
         }
         display
     }
 
     fn submit_server(self: &mut Self) {
+        unimplemented!();
+        /*
         let lplan = self.client_a.next_moves();
         let rplan = self.client_b.next_moves();
         let mut moves = Vec::new();
@@ -211,6 +185,7 @@ impl ClientApp {
         self.client_a.accept_outcome(&lplan, &result);
         self.client_b.accept_outcome(&rplan, &result);
         self.regen_with_time(result.time);
+        */
     }
 
     pub fn new_demo<I: net::ToSocketAddrs>(ip: I) -> Self {
@@ -381,7 +356,7 @@ impl piston_app::App for ClientApp {
         }
 
         let path_color = [1.0, 1.0, 1.0, 1.0];
-        let client = &self.plan();
+        let client = &self.client;
         for (id, plan) in &self.planpaths {
             let mut pos_list = Vec::new();
             let mut unit = client.current.states[&id];
@@ -432,7 +407,7 @@ impl piston_app::App for ClientApp {
         }
 
         let mut tri_list = Vec::with_capacity(client.map.len() * 3);
-        for &trig in &self.map {
+        for &trig in &self.client.map {
             // rust unroll plz <3
             for p in 0..3 {
                 let x = trig[p][0];
@@ -459,15 +434,11 @@ impl piston_app::App for ClientApp {
         {
             let tl;
             // redundancy because borrow checker
-            if new_time <= self.plan().current.time {
-                tl = if self.display_a {
-                    &self.client_a.confirmed
-                } else {
-                    &self.client_b.confirmed
-                }
+            if new_time <= self.client.current.time {
+                tl = &self.client.confirmed;
             } else {
-                if self.display.time <= self.plan().current.time {
-                    self.display = self.plan().current.clone();
+                if self.display.time <= self.client.current.time {
+                    self.display = self.client.current.clone();
                 }
                 tl = &self.planned;
             }
@@ -494,17 +465,14 @@ impl piston_app::App for ClientApp {
                 self.playing = !self.playing;
             } else if args.button == CONTROLS.restart {
                 let dt = self.display.time;
-                let ct = self.plan().current.time;
+                let ct = self.client.current.time;
                 let new_dt;
-                if dt > ct || dt == self.plan().init.time {
-                    new_dt = self.plan().current.time;
+                if dt > ct || dt == self.client.init.time {
+                    new_dt = self.client.current.time;
                 } else {
-                    new_dt = self.plan().init.time;
+                    new_dt = self.client.init.time;
                 }
                 self.regen_with_time(new_dt);
-            } else if args.button == CONTROLS.switch_team {
-                self.display_a = !self.display_a;
-                self.regen();
             } else if args.button == CONTROLS.submit {
                 self.submit_server();
             }
