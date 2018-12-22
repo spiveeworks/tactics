@@ -28,6 +28,7 @@ pub struct ClientApp {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ServerState {
+    Joining,
     Planning,
     ConfirmSubmit,
     Waiting,
@@ -83,16 +84,13 @@ impl ClientApp {
             .expect("Failed to download/parse map");
         let init = ::bincode::deserialize_from(&server)
             .expect("Failed to download/parse unit states");
-        let intro: String = ::bincode::deserialize_from(&server)
-            .expect("Failed to download roster");
-        print!("{}", intro);
         let client = Client::new(init, map);
 
         let display = client.init.clone();
         let mut result = ClientApp {
             client,
             server,
-            waiting: ServerState::Planning,
+            waiting: ServerState::Joining,
 
             display,
             updates: HashMap::new(),
@@ -197,26 +195,38 @@ impl ClientApp {
         self.waiting = ServerState::Waiting;
     }
 
-    fn check_server(self: &mut Self) {
-        if self.waiting != ServerState::Waiting {
-            return;
-        }
+    fn data_received(self: &Self) -> bool {
         let mut byte = [0];
         self.server.set_nonblocking(true)
             .expect("Error setting nonblocking");
         let success = self.server.peek(&mut byte);
         self.server.set_nonblocking(false)
             .expect("Error setting nonblocking");
-        if success.is_err() || success.unwrap() != 1 {
+        success.is_ok() && success.unwrap() == 1
+    }
+
+    fn check_server(self: &mut Self) {
+        use self::ServerState::*;
+        if self.waiting != Joining && self.waiting != Waiting {
             return;
         }
-        let result = ::bincode::deserialize_from(&self.server)
-            .expect("Failed to receive result from server");
+        if !self.data_received() {
+            return;
+        }
+
+        if self.waiting == Joining {
+            let intro: String = ::bincode::deserialize_from(&self.server)
+                .expect("Failed to download roster");
+            print!("{}", intro);
+        } else {
+            let result = ::bincode::deserialize_from(&self.server)
+                .expect("Failed to receive result from server");
+            let plan = self.client.next_moves();
+            self.client.accept_outcome(&plan, &result);
+            self.regen_with_time(result.time);
+            self.playing = false;
+        }
         self.waiting = ServerState::Display;
-        let plan = self.client.next_moves();
-        self.client.accept_outcome(&plan, &result);
-        self.regen_with_time(result.time);
-        self.playing = false;
     }
 }
 
@@ -396,7 +406,7 @@ impl piston_app::App for ClientApp {
                 centre.transform,
                 graphics,
             ),
-            Waiting => window::ellipse(
+            Joining | Waiting => window::ellipse(
                 [1.0,0.0,0.0,1.0],
                 [5.0,5.0,15.0,15.0],
                 centre.transform,
@@ -467,17 +477,18 @@ impl piston_app::App for ClientApp {
                     new_dt = self.client.init.time;
                 }
                 self.regen_with_time(new_dt);
-            } else if args.button == CONTROLS.submit {
-                use self::ServerState::*;
+            }
+            use self::ServerState::*;
+            if args.button == CONTROLS.submit {
                 match self.waiting {
                     Planning | Display => self.waiting = ConfirmSubmit,
                     ConfirmSubmit => self.submit_server(),
-                    Waiting => (),
+                    Joining | Waiting => (),
                 }
-                input = false;
-            }
-            if input && self.waiting != ServerState::Waiting {
-                self.waiting = ServerState::Planning;
+            } else if self.waiting == Display
+                || self.waiting == ConfirmSubmit
+            {
+                self.waiting = Planning;
             }
         }
     }
