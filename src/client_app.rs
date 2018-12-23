@@ -348,14 +348,13 @@ impl piston_app::App for ClientApp {
 
         let path_color = [1.0, 1.0, 1.0, 1.0];
         let client = &self.client;
-        for (id, plan) in &self.planpaths {
+        for (&id, plan) in &self.planpaths {
             let mut pos_list = Vec::new();
             let mut unit = client.current.states[&id];
             unit.update_pos(client.current.time);
             let mut pos = unit.pos;
 
-            if let Some((_, Command::Nav(pos))) = client.current_commands[&id]
-            {
+            if let Some(pos) = self.client.next_pos(id) {
                 pos_list.push(pos);
             }
             for command in plan {
@@ -382,8 +381,7 @@ impl piston_app::App for ClientApp {
             unit.update_pos(client.current.time);
             pos_list.push(unit.pos);
 
-            if let Some((_, Command::Nav(pos))) = client.current_commands[&id]
-            {
+            if let Some(pos) = self.client.next_pos(id) {
                 pos_list.push(pos);
             }
             for command in plan {

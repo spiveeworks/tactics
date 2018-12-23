@@ -257,4 +257,15 @@ impl Client {
             }
         }
     }
+
+    pub fn next_pos(self: &Self, id: EID) -> Option<Vec2> {
+        if let Some((t, Command::Nav(_))) = self.current_commands[&id] {
+            let time = self.cancel[&id].unwrap_or(t);
+            let mut unit = self.current.states[&id];
+            unit.update_pos(time);
+            Some(unit.pos)
+        } else {
+            None
+        }
+    }
 }
