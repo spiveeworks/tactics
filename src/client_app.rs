@@ -143,7 +143,9 @@ impl ClientApp {
             match op {
                 0 => {
                     let comm = plan.pop();
-                    if comm.is_none() {
+                    if comm.is_none()
+                        && self.client.current_commands.contains_key(&id)
+                    {
                         self.client
                             .cancel
                             .insert(id, Some(self.client.current.time));
