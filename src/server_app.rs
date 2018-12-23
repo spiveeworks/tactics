@@ -36,7 +36,9 @@ impl ServerApp {
                 instance.add_player(team, player);
             }
         }
-        instance.send_roster();
+        // if this errors then the instance thread will probably crash very
+        // fast, but that beats the server itself crashing
+        let _ = instance.send_roster();
         instance
     }
 }
@@ -85,16 +87,16 @@ impl ServerInstance {
         self.players.insert(team, player);
     }
 
-    fn send_roster(self: &Self) {
+    fn send_roster(self: &Self) -> Result<(), Box<::bincode::ErrorKind>> {
         let mut intro = "The following players have joined: \n".to_string();
         for (team, name) in &self.player_names {
             intro.push_str(&*format!(" {}: {}\n", team+1, name));
         }
         for (_, player) in &self.players {
-            ::bincode::serialize_into(player, &intro)
-                .expect("Failed to send player roster");
+            ::bincode::serialize_into(player, &intro)?;
         }
         print!("{}", &intro);
+        Ok(())
     }
 
     fn recv_plans(self: &Self) -> HashMap<TID, HashMap<EID, model::UnitState>>
