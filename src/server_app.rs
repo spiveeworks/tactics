@@ -28,47 +28,77 @@ impl ServerApp {
 
     pub fn spawn_instance(self: &mut Self, path: &String) -> ServerInstance {
         save::gen_map();
+        let mut instance = ServerInstance::new(path); 
+        for (_unit, team) in instance.teams.clone() {
+            if !instance.players.contains_key(&team) {
+                println!("Waiting for player {}", team);
+                let player = self.listener.accept().unwrap().0;
+                instance.add_player(team, player);
+            }
+        }
+        instance.send_roster();
+        instance
+    }
+}
+
+/*
+use std::thread;
+use std::sync::mpsc;
+fn delegate<R, F>(mut f: F) -> mpsc::Receiver<R> where
+    R: Send + 'static,
+    F: Send + 'static + FnMut() -> R,
+{
+    let (send, recv) = mpsc::sync_channel(0);
+    thread::spawn(move || {
+        loop {
+            let val = f();
+            send.send(val)
+                .unwrap();
+        }
+    });
+    recv
+}*/
+
+impl ServerInstance {
+    fn new(path: &String) -> Self {
         let (teams, init, map) = save::read_scenario(path);
         let server = Server::new(init, map);
         //let read_timeout = Some(time::Duration::from_millis(100));
-        let mut instance = ServerInstance {
+        ServerInstance {
             teams,
             server,
 
             players: HashMap::new(),
             player_names: HashMap::new(),
-        };
-
-        for (_unit, team) in instance.teams.clone() {
-            if !instance.players.contains_key(&team) {
-                println!("Waiting for player {}", team);
-                let mut player = self.listener.accept().unwrap().0;
-                // player.set_read_timeout(self.read_timeout);
-                let name = bincode::deserialize_from(&player)
-                    .expect("Failed to read player name");
-                ::bincode::serialize_into(&player, &instance.server.map)
-                    .expect("Failed to send map");
-                ::bincode::serialize_into(&player, &instance.server.current)
-                    .expect("Failed to send unit state");
-                instance.player_names.insert(team, name);
-                instance.players.insert(team, player);
-            }
         }
+    }
+
+    fn add_player(self: &mut Self, team: TID, player: net::TcpStream) {
+        let name = bincode::deserialize_from(&player)
+            .expect("Failed to read player name");
+        self.player_names.insert(team, name);
+
+        ::bincode::serialize_into(&player, &self.server.map)
+            .expect("Failed to send map");
+        ::bincode::serialize_into(&player, &self.server.current)
+            .expect("Failed to send unit state");
+        self.players.insert(team, player);
+    }
+
+    fn send_roster(self: &Self) {
         let mut intro = "The following players have joined: \n".to_string();
-        for (team, name) in &instance.player_names {
+        for (team, name) in &self.player_names {
             intro.push_str(&*format!(" {}: {}\n", team+1, name));
         }
-        for (_, player) in &instance.players {
+        for (_, player) in &self.players {
             ::bincode::serialize_into(player, &intro)
                 .expect("Failed to send player roster");
         }
         print!("{}", &intro);
-        instance
     }
-}
 
-impl ServerInstance {
-    fn iterate(self: &mut Self) {
+    fn recv_plans(self: &Self) -> HashMap<TID, HashMap<EID, model::UnitState>>
+    {
         let mut plans = HashMap::new();
         for (&team, player) in &self.players {
             let plan: HashMap<EID, model::UnitState> =
@@ -78,6 +108,13 @@ impl ServerInstance {
                 );
             plans.insert(team, plan);
         }
+        plans
+    }
+
+    fn take_plans(
+        self: &mut Self,
+        plans: HashMap<TID, HashMap<EID, model::UnitState>>,
+    ) -> model::Snapshot {
         let mut moves = Vec::with_capacity(self.teams.len());
         for (&unit, &team) in &self.teams {
             let plan = &plans[&team];
@@ -87,6 +124,10 @@ impl ServerInstance {
         }
         let result = self.server.resolve(moves.into_iter())
             .expect("Player submitted invalid move");
+        result
+    }
+
+    fn send_results(self: &mut Self, result: model::Snapshot) {
         for (_, player) in &self.players {
             ::bincode::serialize_into(player, &result)
                 .expect("Failed to send server result");
@@ -95,7 +136,9 @@ impl ServerInstance {
 
     pub fn run(mut self: Self) {
         loop {
-            self.iterate();
+            let plans = self.recv_plans();
+            let result = self.take_plans(plans);
+            self.send_results(result);
         }
     }
 

@@ -14,6 +14,7 @@ use client::*;
 pub struct ClientApp {
     client: Client,
     server: net::TcpStream,
+    waiting: ServerState,
 
     display: model::Snapshot,
     updates: HashMap<EID, Update>,
@@ -23,6 +24,15 @@ pub struct ClientApp {
     selected: EID,
     mouse: Vec2,
     playing: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ServerState {
+    Joining,
+    Planning,
+    ConfirmSubmit,
+    Waiting,
+    Display,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -74,15 +84,13 @@ impl ClientApp {
             .expect("Failed to download/parse map");
         let init = ::bincode::deserialize_from(&server)
             .expect("Failed to download/parse unit states");
-        let intro: String = ::bincode::deserialize_from(&server)
-            .expect("Failed to download roster");
-        print!("{}", intro);
         let client = Client::new(init, map);
 
         let display = client.init.clone();
         let mut result = ClientApp {
             client,
             server,
+            waiting: ServerState::Joining,
 
             display,
             updates: HashMap::new(),
@@ -184,10 +192,41 @@ impl ClientApp {
         let plan = self.client.next_moves();
         ::bincode::serialize_into(&self.server, &plan)
             .expect("Failed to send plan to server");
-        let result = ::bincode::deserialize_from(&self.server)
-            .expect("Failed to receive result from server");
-        self.client.accept_outcome(&plan, &result);
-        self.regen_with_time(result.time);
+        self.waiting = ServerState::Waiting;
+    }
+
+    fn data_received(self: &Self) -> bool {
+        let mut byte = [0];
+        self.server.set_nonblocking(true)
+            .expect("Error setting nonblocking");
+        let success = self.server.peek(&mut byte);
+        self.server.set_nonblocking(false)
+            .expect("Error setting nonblocking");
+        success.is_ok() && success.unwrap() == 1
+    }
+
+    fn check_server(self: &mut Self) {
+        use self::ServerState::*;
+        if self.waiting != Joining && self.waiting != Waiting {
+            return;
+        }
+        if !self.data_received() {
+            return;
+        }
+
+        if self.waiting == Joining {
+            let intro: String = ::bincode::deserialize_from(&self.server)
+                .expect("Failed to download roster");
+            print!("{}", intro);
+        } else {
+            let result = ::bincode::deserialize_from(&self.server)
+                .expect("Failed to receive result from server");
+            let plan = self.client.next_moves();
+            self.client.accept_outcome(&plan, &result);
+            self.regen_with_time(result.time);
+            self.playing = false;
+        }
+        self.waiting = ServerState::Display;
     }
 }
 
@@ -357,12 +396,36 @@ impl piston_app::App for ClientApp {
             }
         }
         graphics.tri_list(&Default::default(), &path_color, |f| f(&*tri_list));
+
+        use self::ServerState::*;
+        match self.waiting {
+            Planning => (),
+            ConfirmSubmit => window::ellipse(
+                [1.0,1.0,0.0,1.0],
+                [5.0,5.0,15.0,15.0],
+                centre.transform,
+                graphics,
+            ),
+            Joining | Waiting => window::ellipse(
+                [1.0,0.0,0.0,1.0],
+                [5.0,5.0,15.0,15.0],
+                centre.transform,
+                graphics,
+            ),
+            Display => window::ellipse(
+                [0.0,1.0,0.0,1.0],
+                [5.0,5.0,15.0,15.0],
+                centre.transform,
+                graphics,
+            ),
+        }
     }
 
     fn on_update(
         self: &mut Self,
         _args: window::UpdateArgs,
     ) {
+        self.check_server();
         if !self.playing {
             return
         }
@@ -389,6 +452,7 @@ impl piston_app::App for ClientApp {
         args: window::ButtonArgs,
     ) {
         if args.state == window::ButtonState::Press {
+            let mut input = true;
             if args.button == CONTROLS.select {
                 self.selected = self.unit_nearest_mouse();
             } else if args.button == CONTROLS.remove_comm {
@@ -413,8 +477,18 @@ impl piston_app::App for ClientApp {
                     new_dt = self.client.init.time;
                 }
                 self.regen_with_time(new_dt);
-            } else if args.button == CONTROLS.submit {
-                self.submit_server();
+            }
+            use self::ServerState::*;
+            if args.button == CONTROLS.submit {
+                match self.waiting {
+                    Planning | Display => self.waiting = ConfirmSubmit,
+                    ConfirmSubmit => self.submit_server(),
+                    Joining | Waiting => (),
+                }
+            } else if self.waiting == Display
+                || self.waiting == ConfirmSubmit
+            {
+                self.waiting = Planning;
             }
         }
     }
