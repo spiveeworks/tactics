@@ -54,10 +54,13 @@ struct Controls {
     select: window::Button,
     remove_comm: window::Button,
     continuec: window::Button,
+    feint: window::Button,
     nav: window::Button,
     shoot: window::Button,
     wait: window::Button,
     playpause: window::Button,
+    advance: window::Button,
+    unadvance: window::Button,
     restart: window::Button,
     submit: window::Button,
 }
@@ -67,9 +70,13 @@ static CONTROLS: Controls = Controls {
     nav:         window::Button::Mouse(window::mouse::MouseButton::Right),
     remove_comm: window::Button::Keyboard(window::keyboard::Key::Backspace),
     continuec:   window::Button::Keyboard(window::keyboard::Key::C),
+    // TODO shift+c, in line with shift+q and shift+RMB
+    feint:       window::Button::Keyboard(window::keyboard::Key::F),
     shoot:       window::Button::Keyboard(window::keyboard::Key::Q),
     wait:        window::Button::Keyboard(window::keyboard::Key::W),
     playpause:   window::Button::Keyboard(window::keyboard::Key::Space),
+    advance:     window::Button::Keyboard(window::keyboard::Key::Period),
+    unadvance:   window::Button::Keyboard(window::keyboard::Key::Comma),
     restart:     window::Button::Keyboard(window::keyboard::Key::R),
     submit:      window::Button::Keyboard(window::keyboard::Key::Return),
 };
@@ -459,13 +466,16 @@ impl piston_app::App for ClientApp {
         args: window::ButtonArgs,
     ) {
         if args.state == window::ButtonState::Press {
-            let mut input = true;
             if args.button == CONTROLS.select {
                 self.selected = self.unit_nearest_mouse();
             } else if args.button == CONTROLS.remove_comm {
                 self.edit_plan(0);
             } else if args.button == CONTROLS.continuec {
                 self.edit_plan(1);
+            } else if args.button == CONTROLS.feint {
+                self.client
+                    .cancel
+                    .insert(self.selected, Some(self.display.time));
             } else if args.button == CONTROLS.nav {
                 self.edit_plan(2);
             } else if args.button == CONTROLS.shoot {
@@ -474,6 +484,14 @@ impl piston_app::App for ClientApp {
                 self.edit_plan(4);
             } else if args.button == CONTROLS.playpause {
                 self.playing = !self.playing;
+            } else if args.button == CONTROLS.advance {
+                let time = self.display.time + 0.1;
+                self.regen_with_time(time);
+            } else if args.button == CONTROLS.unadvance {
+                if self.display.time > self.client.init.time {
+                    let time = self.display.time - 0.1;
+                    self.regen_with_time(time);
+                }
             } else if args.button == CONTROLS.restart {
                 let dt = self.display.time;
                 let ct = self.client.current.time;
