@@ -76,7 +76,7 @@ impl ServerInstance {
     }
 
     fn add_player(self: &mut Self, team: TID, player: net::TcpStream) {
-        let name = bincode::deserialize_from(&player)
+        let name = ::bincode::deserialize_from(&player)
             .expect("Failed to read player name");
         self.player_names.insert(team, name);
 
