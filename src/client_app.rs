@@ -53,11 +53,14 @@ impl Update {
 struct Controls {
     select: window::Button,
     remove_comm: window::Button,
-    cancel_comm: window::Button,
+    continuec: window::Button,
+    feint: window::Button,
     nav: window::Button,
     shoot: window::Button,
     wait: window::Button,
     playpause: window::Button,
+    advance: window::Button,
+    unadvance: window::Button,
     restart: window::Button,
     submit: window::Button,
 }
@@ -66,10 +69,14 @@ static CONTROLS: Controls = Controls {
     select:      window::Button::Mouse(window::mouse::MouseButton::Left),
     nav:         window::Button::Mouse(window::mouse::MouseButton::Right),
     remove_comm: window::Button::Keyboard(window::keyboard::Key::Backspace),
-    cancel_comm: window::Button::Keyboard(window::keyboard::Key::X),
+    continuec:   window::Button::Keyboard(window::keyboard::Key::C),
+    // TODO shift+c, in line with shift+q and shift+RMB
+    feint:       window::Button::Keyboard(window::keyboard::Key::F),
     shoot:       window::Button::Keyboard(window::keyboard::Key::Q),
     wait:        window::Button::Keyboard(window::keyboard::Key::W),
     playpause:   window::Button::Keyboard(window::keyboard::Key::Space),
+    advance:     window::Button::Keyboard(window::keyboard::Key::Period),
+    unadvance:   window::Button::Keyboard(window::keyboard::Key::Comma),
     restart:     window::Button::Keyboard(window::keyboard::Key::R),
     submit:      window::Button::Keyboard(window::keyboard::Key::Return),
 };
@@ -134,8 +141,17 @@ impl ClientApp {
             }
             let plan = plan.unwrap();
             match op {
-                0 => {plan.pop();},
-                1 => plan.push(Command::Cancel),
+                0 => {
+                    let comm = plan.pop();
+                    if comm.is_none()
+                        && self.client.current_commands.contains_key(&id)
+                    {
+                        self.client
+                            .cancel
+                            .insert(id, Some(self.client.current.time));
+                    }
+                },
+                1 => {self.client.cancel.insert(id, None);},
                 2 => plan.push(Command::Nav(mouse)),
                 3 => plan.push(Command::Shoot(mouse_id)),
                 4 => plan.push(Command::Wait(1.0)),
@@ -334,14 +350,13 @@ impl piston_app::App for ClientApp {
 
         let path_color = [1.0, 1.0, 1.0, 1.0];
         let client = &self.client;
-        for (id, plan) in &self.planpaths {
+        for (&id, plan) in &self.planpaths {
             let mut pos_list = Vec::new();
             let mut unit = client.current.states[&id];
             unit.update_pos(client.current.time);
             let mut pos = unit.pos;
 
-            if let Some((_, Command::Nav(pos))) = client.current_commands[&id]
-            {
+            if let Some(pos) = self.client.next_pos(id) {
                 pos_list.push(pos);
             }
             for command in plan {
@@ -368,8 +383,7 @@ impl piston_app::App for ClientApp {
             unit.update_pos(client.current.time);
             pos_list.push(unit.pos);
 
-            if let Some((_, Command::Nav(pos))) = client.current_commands[&id]
-            {
+            if let Some(pos) = self.client.next_pos(id) {
                 pos_list.push(pos);
             }
             for command in plan {
@@ -452,13 +466,16 @@ impl piston_app::App for ClientApp {
         args: window::ButtonArgs,
     ) {
         if args.state == window::ButtonState::Press {
-            let mut input = true;
             if args.button == CONTROLS.select {
                 self.selected = self.unit_nearest_mouse();
             } else if args.button == CONTROLS.remove_comm {
                 self.edit_plan(0);
-            } else if args.button == CONTROLS.cancel_comm {
+            } else if args.button == CONTROLS.continuec {
                 self.edit_plan(1);
+            } else if args.button == CONTROLS.feint {
+                self.client
+                    .cancel
+                    .insert(self.selected, Some(self.display.time));
             } else if args.button == CONTROLS.nav {
                 self.edit_plan(2);
             } else if args.button == CONTROLS.shoot {
@@ -467,6 +484,14 @@ impl piston_app::App for ClientApp {
                 self.edit_plan(4);
             } else if args.button == CONTROLS.playpause {
                 self.playing = !self.playing;
+            } else if args.button == CONTROLS.advance {
+                let time = self.display.time + 0.1;
+                self.regen_with_time(time);
+            } else if args.button == CONTROLS.unadvance {
+                if self.display.time > self.client.init.time {
+                    let time = self.display.time - 0.1;
+                    self.regen_with_time(time);
+                }
             } else if args.button == CONTROLS.restart {
                 let dt = self.display.time;
                 let ct = self.client.current.time;

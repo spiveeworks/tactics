@@ -12,7 +12,6 @@ pub enum Command {
     Nav(Vec2),
     Wait(f64),
     Shoot(EID),
-    Cancel,
 }
 
 impl model::UnitState {
@@ -34,7 +33,6 @@ impl model::UnitState {
                 self.target_loc = [0.0, 0.0];
             },
             Command::Wait(_) => (),
-            Command::Cancel => unreachable!(),
         }
     }
 
@@ -50,7 +48,6 @@ impl model::UnitState {
                 self.action = model::Action::Shoot;
             },
             Command::Wait(_) => (),
-            Command::Cancel => unreachable!(),
         }
         duration
     }
@@ -79,7 +76,6 @@ impl model::UnitState {
             Command::Shoot(_) => {
                 5.0
             },
-            Command::Cancel => unreachable!(),
         }
     }
 
@@ -111,6 +107,7 @@ pub struct Client {
     pub confirmed: model::Timeline,
     pub current: model::Snapshot,
     pub current_commands: HashMap<EID, Option<(f64, Command)>>,
+    pub cancel: HashMap<EID, Option<f64>>,
     pub plans: Plan,
 }
 
@@ -122,6 +119,7 @@ impl Client {
         let current = init.clone();
         let current_commands = empty_map(&init.states);
         let plans = empty_map(&init.states);
+        let cancel = empty_map(&init.states);
         Client {
             map,
             //mesh,
@@ -130,6 +128,7 @@ impl Client {
             confirmed,
             current,
             current_commands,
+            cancel,
             plans,
         }
     }
@@ -153,6 +152,7 @@ impl Client {
             confirmed: model::Timeline::new(),
             current_commands: self.current_commands.clone(),
             current: self.current.clone(),
+            cancel: self.cancel.clone(),
             plans: paths.clone(),
         };
 
@@ -181,18 +181,17 @@ impl Client {
             let old_state = self.current.states[&id];
             let mut state = old_state;
             let plan = self.plans.get(&id).unwrap();
-            let cancel = plan.get(0).cloned() == Some(Command::Cancel);
-            let mut new_comm = None;
-            for &c in plan {
-                if c != Command::Cancel {
-                    new_comm = Some(c);
-                    break;
-                }
-            }
+            let new_comm = plan.get(0).cloned();
             if comm.is_some() || new_comm.is_some() {
                 let mut time = self.current.time + 0.1;
-                if let Some((ctime, _)) = comm {
-                    if !cancel && ctime > time {
+                if let Some((mut ctime, _)) = comm {
+                    let cancel = self.cancel[&id];
+                    if let Some(cctime) = cancel {
+                        if cctime < ctime {
+                            ctime = cctime;
+                        }
+                    }
+                    if ctime > time {
                         time = ctime;
                     }
                 }
@@ -239,11 +238,9 @@ impl Client {
                 .get(&id)
                 .cloned()
                 .unwrap_or(self.current.states[&id]);
+            self.cancel.insert(id, None);
             if unit == expected {
                 let plan = &mut self.plans.get_mut(&id).unwrap();
-                while plan.get(0).cloned() == Some(Command::Cancel) {
-                    plan.remove(0);
-                }
                 let comm = if plan.len() > 0 {
                     Some(plan.remove(0))
                 } else {
@@ -258,6 +255,17 @@ impl Client {
                 let comm = unit.infer_command(self.current.time);
                 self.current_commands.insert(id, comm);
             }
+        }
+    }
+
+    pub fn next_pos(self: &Self, id: EID) -> Option<Vec2> {
+        if let Some((t, Command::Nav(_))) = self.current_commands[&id] {
+            let time = self.cancel[&id].unwrap_or(t);
+            let mut unit = self.current.states[&id];
+            unit.update_pos(time);
+            Some(unit.pos)
+        } else {
+            None
         }
     }
 }
