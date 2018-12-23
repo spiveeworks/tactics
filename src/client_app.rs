@@ -53,7 +53,7 @@ impl Update {
 struct Controls {
     select: window::Button,
     remove_comm: window::Button,
-    cancel_comm: window::Button,
+    continuec: window::Button,
     nav: window::Button,
     shoot: window::Button,
     wait: window::Button,
@@ -66,7 +66,7 @@ static CONTROLS: Controls = Controls {
     select:      window::Button::Mouse(window::mouse::MouseButton::Left),
     nav:         window::Button::Mouse(window::mouse::MouseButton::Right),
     remove_comm: window::Button::Keyboard(window::keyboard::Key::Backspace),
-    cancel_comm: window::Button::Keyboard(window::keyboard::Key::X),
+    continuec:   window::Button::Keyboard(window::keyboard::Key::C),
     shoot:       window::Button::Keyboard(window::keyboard::Key::Q),
     wait:        window::Button::Keyboard(window::keyboard::Key::W),
     playpause:   window::Button::Keyboard(window::keyboard::Key::Space),
@@ -134,8 +134,15 @@ impl ClientApp {
             }
             let plan = plan.unwrap();
             match op {
-                0 => {plan.pop();},
-                1 => plan.push(Command::Cancel),
+                0 => {
+                    let comm = plan.pop();
+                    if comm.is_none() {
+                        self.client
+                            .cancel
+                            .insert(id, Some(self.client.current.time));
+                    }
+                },
+                1 => {self.client.cancel.insert(id, None);},
                 2 => plan.push(Command::Nav(mouse)),
                 3 => plan.push(Command::Shoot(mouse_id)),
                 4 => plan.push(Command::Wait(1.0)),
@@ -457,7 +464,7 @@ impl piston_app::App for ClientApp {
                 self.selected = self.unit_nearest_mouse();
             } else if args.button == CONTROLS.remove_comm {
                 self.edit_plan(0);
-            } else if args.button == CONTROLS.cancel_comm {
+            } else if args.button == CONTROLS.continuec {
                 self.edit_plan(1);
             } else if args.button == CONTROLS.nav {
                 self.edit_plan(2);
