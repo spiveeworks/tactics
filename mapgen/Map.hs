@@ -166,8 +166,12 @@ square :: Float -> Point -> Poly
 square r (Point x y) = rect (Point (x - r) (y - r)) (Point (x + r) (y + r))
 
 line :: Float -> Point -> Point -> Poly
-line r c1 c2 = Poly [p1, p2, p3, p4, p5, p6]
+line r c1@(Point x1 y1) c2@(Point x2 y2)
+  | x1 > x2 = line r c2 c1
+  | y1 > y2 = mapPoints neg $ line r (neg c1) (neg c2)
+  | otherwise = Poly [p1, p2, p3, p4, p5, p6]
   where
     Poly [p1, p2, _, p6] = square r c1
     Poly [_, p3, p4, p5] = square r c2
+    neg = reflectVert 0.0
 

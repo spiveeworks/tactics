@@ -6,7 +6,7 @@
             weapon: Gun,
         ),
         (
-            team: 0,
+            team: 1,
             pos: (30.0, 5.0),
             weapon: Gun,
         ),
@@ -16,7 +16,7 @@
             weapon: Gun,
         ),
         (
-            team: 0,
+            team: 1,
             pos: (30.0, 55.0),
             weapon: Gun,
         ),

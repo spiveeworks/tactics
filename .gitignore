@@ -2,3 +2,4 @@ target/**
 mapgen/*.hi
 mapgen/*.o
 mapgen/Demo
+mapgen/Conflict
