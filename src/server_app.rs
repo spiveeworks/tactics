@@ -27,7 +27,6 @@ impl ServerApp {
     }
 
     pub fn spawn_instance(self: &mut Self, path: &String) -> ServerInstance {
-        save::gen_map();
         let mut instance = ServerInstance::new(path); 
         for (_unit, team) in instance.teams.clone() {
             if !instance.players.contains_key(&team) {
